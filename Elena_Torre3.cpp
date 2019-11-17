@@ -24,7 +24,19 @@ int main()
 {
     std::vector<std::string> fileCont; //string vector to store each line on the text file
     
-   for (std::string line; std::getline(std::cin, line); )
+   /*for (std::string line; std::getline(std::cin, line); )
+    {
+       fileCont.push_back(line); //each line is an element in this vector
+    }*/
+    std::ifstream inFile;
+
+    inFile.open("inp.txt");
+    if (!inFile) {
+        std::cout << "Unable to open file";
+        exit(1); // terminate with error
+    }
+    std::string line;
+    while (inFile >> line) 
     {
        fileCont.push_back(line); //each line is an element in this vector
     }
@@ -37,30 +49,32 @@ int main()
     int poolMax = stoi(fileCont[5]); //min frames in memory
     int numb_process = stoi(fileCont[6]); //number of processes
     std::vector<process> processList;
-    for(int i = 0; i <numb_process; i++) //create vector of process structs 
+    fileCont.erase(fileCont.begin(), (fileCont.begin()+7));
+    for(int i =0; i < numb_process; i++)
     {
-        std::istringstream buff(fileCont[7+i]);
-        int tempPid = 0;
-        buff >> tempPid;
-        int tempPages = 0;
-        buff >> tempPages;
-        processList.push_back(processCreator(tempPid, tempPages));
-
+        std::istringstream buff(fileCont[2*i]);
+        int x;
+        buff >> x;
+        std::istringstream buff2(fileCont[(2*i)+ 1]);
+        int y;
+        buff2 >> y;
+        processList.push_back(processCreator(x, y));
     }
-    fileCont.erase(fileCont.begin(), (fileCont.begin()+7+numb_process)); //erase all lines of the input file I don't need
+    fileCont.erase(fileCont.begin(), (fileCont.begin()+(2*numb_process))); //erase all lines of the input file I don't need
     std::vector<instruction> instructions; //vector with pid-address pairs
-    for(int i = 0; i < fileCont.size(); i++)
+    for(int i = 0; i < (fileCont.size()/2); i++)
     {
         
-        std::istringstream buff(fileCont[i]);
+        std::istringstream buff(fileCont[2*i]);
         int tempPid = 0;
         buff >> tempPid;
+        std::istringstream buff2(fileCont[(2*i)+1]);
         std::string temp;
-        buff >> temp;
+        buff2 >> temp;
         instructions.push_back(instrCreator(tempPid, temp));
-        
-    }
 
+    }
+    
     return 0;
 
 
