@@ -17,14 +17,19 @@ struct process
     int pid; //process ID
     int pagesOnDisk; //# of pages
     std::vector<instruction> inst; //list of instructions. Since this is a single-processor simulation, each process will execute alone
+    int pageFaults = 0;
 };
 struct frame //content of each  page frame
 {
     int pid; //process address space
     int pageNumb; //page number
+    bool empty;
 };
 struct frameTable
 {
+    int emptyFrames;
+    int maxEmpty;
+    int minEmpty;
     std::vector<frame> frames; //list of frames on Main Memory
 };
 
@@ -87,8 +92,13 @@ int main()
     int poolMin = stoi(fileCont[4]); //max  empty frames in main memory
     int poolMax = stoi(fileCont[5]); //min  empty frames in memory
     int numb_process = stoi(fileCont[6]); //number of processes
+
+    int TotalPageFaults = 0; //total number of page faults
+
     std::vector<process> processList;
+
     fileCont.erase(fileCont.begin(), (fileCont.begin()+7));
+
     for(int i =0; i < numb_process; i++)
     {
         std::istringstream buff(fileCont[2*i]);
@@ -100,7 +110,9 @@ int main()
         processList.push_back(processCreator(x, y));
     }
     fileCont.erase(fileCont.begin(), (fileCont.begin()+(2*numb_process))); //erase all lines of the input file I don't need
+
     std::vector<instruction> instructions; //vector with pid-address pairs
+
     for(int i = 0; i < (fileCont.size()/2); i++)
     {
         
@@ -114,7 +126,11 @@ int main()
 
     }
 
-    diskTable dTable;
+
+    /*Create Disk Table*/
+
+    diskTable dTable; 
+
     dTable.diskSize = 0; //initialize at 0
     for(int i = 0; i < processList.size(); i++)
     {
@@ -131,6 +147,59 @@ int main()
         dTable.dp[i].max =baseCounter;
         baseCounter ++; //next base will start at the max + 1
     }
+
+    /*Create frame Table*/
+
+    frameTable fTable;
+    fTable.maxEmpty = poolMax;
+    fTable.minEmpty = poolMin;
+    fTable.emptyFrames = 0;
+    for(int i = 0; i < tp; i++)
+    {
+        frame tempFrame;
+        tempFrame.pageNumb = 999;
+        tempFrame.pid = 999;
+        tempFrame.empty = true; //initialize empty frames
+        fTable.emptyFrames ++;
+        fTable.frames.push_back(tempFrame);
+    }
+
+    /*Create Page Table*/
+
+    pageTable pTable;
+    
+    for(int i = 0; i < processList.size(); i++)
+    {
+        pageList pList;
+        pList.pid = processList[i].pid;
+        
+        for(int j = 0; j < processList[i].pagesOnDisk; j++)
+        {
+            map tMap;
+            tMap.pageNumb = j;
+            tMap.pAdress = (dTable.dp[i].base) + (j*ps);
+            
+            if(tMap.pAdress > dTable.dp[i].max)
+            {
+                std::cout<<"ya done fucked up";
+            }
+            pList.maps.push_back(tMap);
+        }
+        pTable.pageLists.push_back(pList);
+    }
+
+    /*Assign an instruction list to each process*/
+    for(int i = 0; i < processList.size(); i++)
+    {
+        for(int j = 0; j <instructions.size(); j++)
+        {
+            if(instructions[j].pid == processList[i].pid)
+            {
+                processList[i].inst.push_back(instructions[j]);
+            }
+        }
+    }
+
     std::cout <<"ya";
     return 0;
 
