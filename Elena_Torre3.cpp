@@ -7,10 +7,15 @@
 #include <vector>
 #include <unistd.h>
 #include <semaphore.h>
+struct address
+{
+    int pageNumb; //page number for a process
+    int pageEntry; //entry on that page
+};
 struct instruction
 {
     int pid; // process for instruction
-    std::string address; //address for instruction
+    address ad; //address for instruction
 };
 struct process
 {
@@ -62,7 +67,7 @@ struct pageTable
 };
 
 process processCreator(int id, int pages);
-instruction instrCreator(int id, std::string address);
+instruction instrCreator(int id, std::string addr);
 
 int main()
 {
@@ -200,6 +205,16 @@ int main()
         }
     }
 
+    /*Start paging*/
+
+    for(int i = 0; i < processList.size(); i++)
+    {
+        for(int j = 0; j < processList[i].inst.size(); j++)
+        {
+            
+        }
+    }
+
     std::cout <<"ya";
     return 0;
 
@@ -212,10 +227,77 @@ process processCreator(int id, int pages)
     newProcess.pagesOnDisk = pages;
     return newProcess;
 }
-instruction instrCreator(int id, std::string address)
+instruction instrCreator(int id, std::string addr)
 {
     instruction newInstr;
     newInstr.pid = id;
-    newInstr.address = address;
+    address tempAd; 
+    std::string pn = addr.substr(2, 1);
+    std::string pe =  addr.substr(3,1);
+    int temp1;
+    if(pn == "A")
+    {
+        temp1 = 10;
+    }
+    if(pn == "B")
+    {
+        temp1 = 11;
+    }
+    if(pn == "C")
+    {
+        temp1 = 12;
+    }
+    if(pn == "D")
+    {
+        temp1 = 13;
+    }
+    if(pn == "E")
+    {
+        temp1 = 14;
+    }
+    if(pn == "F")
+    {
+        temp1 = 15;
+    }
+    else
+    {
+        temp1 = stoi(pn);
+    }
+
+    int temp2;
+
+    if(pe == "A")
+    {
+        temp2 = 10;
+    }
+    if(pe == "B")
+    {
+        temp2 = 11;
+    }
+    if(pe == "C")
+    {
+        temp2 = 12;
+    }
+    if(pe == "D")
+    {
+        temp2 = 13;
+    }
+    if(pe == "E")
+    {
+        temp2 = 14;
+    }
+    if(pe == "F")
+    {
+        temp2 = 15;
+    }
+    else
+    {
+        temp2 = stoi(pe);
+    }
+
+    tempAd.pageNumb = temp1;
+    tempAd.pageEntry = temp2;
+
+    newInstr.ad = tempAd;
     return newInstr;
 }
