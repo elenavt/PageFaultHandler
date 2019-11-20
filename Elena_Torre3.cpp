@@ -32,6 +32,7 @@ struct frame //content of each  page frame
 };
 struct frameTable
 {
+    int pid; //one frames table for each process to save context
     int emptyFrames;
     int maxEmpty;
     int minEmpty;
@@ -124,10 +125,18 @@ int main()
         std::istringstream buff(fileCont[2*i]);
         int tempPid = 0;
         buff >> tempPid;
-        std::istringstream buff2(fileCont[(2*i)+1]);
-        std::string temp;
-        buff2 >> temp;
-        instructions.push_back(instrCreator(tempPid, temp));
+        std::string temp = (fileCont[(2*i)+1]);
+        if(temp == "-1")
+        {
+            instructions.push_back(instrCreator(tempPid, temp));
+        }
+        else
+        {
+            temp.erase(0, 2);
+            instructions.push_back(instrCreator(tempPid, temp));
+        }
+        
+        
 
     }
 
@@ -150,11 +159,12 @@ int main()
         dTable.dp[i].base = baseCounter; //set base
         baseCounter += (processList[i].pagesOnDisk *ps); // use base counter to save max
         dTable.dp[i].max =baseCounter;
-        baseCounter ++; //next base will start at the max + 1
     }
 
-    /*Create frame Table*/
+    /*Create frame Tables for every process*/
+    /*This will help me save the frames allocated to every process for context switching on a page fault*/
 
+    std::vector<frameTable> fTables;
     frameTable fTable;
     fTable.maxEmpty = poolMax;
     fTable.minEmpty = poolMin;
@@ -167,6 +177,11 @@ int main()
         tempFrame.empty = true; //initialize empty frames
         fTable.emptyFrames ++;
         fTable.frames.push_back(tempFrame);
+    }
+    for(int i = 0; i <processList.size(); i++)
+    {
+        fTable.pid = processList[i].pid;
+        fTables.push_back(fTable);
     }
 
     /*Create Page Table*/
@@ -231,73 +246,75 @@ instruction instrCreator(int id, std::string addr)
 {
     instruction newInstr;
     newInstr.pid = id;
-    address tempAd; 
-    std::string pn = addr.substr(2, 1);
-    std::string pe =  addr.substr(3,1);
-    int temp1;
-    if(pn == "A")
+    address tempAd;
+    if(addr == "-1")
     {
-        temp1 = 10;
-    }
-    if(pn == "B")
-    {
-        temp1 = 11;
-    }
-    if(pn == "C")
-    {
-        temp1 = 12;
-    }
-    if(pn == "D")
-    {
-        temp1 = 13;
-    }
-    if(pn == "E")
-    {
-        temp1 = 14;
-    }
-    if(pn == "F")
-    {
-        temp1 = 15;
-    }
-    else
-    {
-        temp1 = stoi(pn);
-    }
+        tempAd.pageEntry = -1;
+        tempAd.pageNumb = -1;
+        newInstr.ad = tempAd;
+        return newInstr;
+    } 
+    char pn = addr[0];
+    char pe =  addr[1];
 
+    int temp1;
     int temp2;
 
-    if(pe == "A")
+    switch (pn)
     {
-        temp2 = 10;
+    case 'A':
+        tempAd.pageNumb = 10;
+        break;
+    case 'B':
+        tempAd.pageNumb = 11;
+        break;
+    case 'C':
+        tempAd.pageNumb = 12;
+        break;
+    case 'D':
+        tempAd.pageNumb = 13;
+        break;
+    case 'E':
+        tempAd.pageNumb = 14;
+        break;
+    case 'F':
+        tempAd.pageNumb = 15;
+        break;
+    
+    default:
+        temp1 = (int)pn - '0';
+        tempAd.pageNumb = temp1;
+        break;
     }
-    if(pe == "B")
+    switch (pe)
     {
-        temp2 = 11;
+    case 'A':
+        tempAd.pageEntry = 10;
+        std::cout << tempAd.pageEntry;
+        break;
+    case 'B':
+        tempAd.pageEntry= 11;
+        break;
+    case 'C':
+        tempAd.pageEntry = 12;
+        break;
+    case 'D':
+        tempAd.pageEntry = 13;
+        break;
+    case 'E':
+        tempAd.pageEntry = 14;
+        break;
+    case 'F':
+        tempAd.pageEntry = 15;
+        break;
+    
+    default:
+        temp2 = (int)pe - '0';
+        tempAd.pageEntry= temp2;
+        break;
     }
-    if(pe == "C")
-    {
-        temp2 = 12;
-    }
-    if(pe == "D")
-    {
-        temp2 = 13;
-    }
-    if(pe == "E")
-    {
-        temp2 = 14;
-    }
-    if(pe == "F")
-    {
-        temp2 = 15;
-    }
-    else
-    {
-        temp2 = stoi(pe);
-    }
-
-    tempAd.pageNumb = temp1;
-    tempAd.pageEntry = temp2;
-
+   
+    std::cout << tempAd.pageEntry;
     newInstr.ad = tempAd;
     return newInstr;
 }
