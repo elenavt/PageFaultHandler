@@ -86,7 +86,7 @@ struct pageTable
 
 process processCreator(int id, int pages);
 instruction instrCreator(int id, std::string addr);
-
+void paging(process* processPtr, masterFrameTable* framesPtr, sem_t* dSem, sem_t* mutex);
 int main()
 {
     std::vector<std::string> fileCont; //string vector to store each line on the text file
@@ -293,27 +293,28 @@ int main()
         }
         else if (pid == 0) // fork once for each process
         {
-            std::cout <<"process "<<i<<" goes here" << std::endl;
+            /*paging function here*/
+
+            break;
         }
     }
     if(pid != 0)
     {
-        pid_t pid2;
-        pid2 = fork();
+        pid  = fork();
 
-        if(pid2 == -1)
+        if(pid == -1)
         {
             perror("error forking.");
         }
-        if (pid2 == 0)
+        if (pid == 0)
         {
-            std::cout <<"disk driver goes here" << std::endl;
+            /*disk driver goes here*/
             
         }
         
-        if(pid2 != 0)
+        if(pid != 0)
         {
-            std::cout <<"page fault handler goes here" << std::endl;
+            /*page fault handler goes here*/
         }
     }
 
@@ -327,6 +328,21 @@ int main()
     return 0;
 
 
+}
+void paging(process* processPtr, masterFrameTable* framesPtr, sem_t* dSem, sem_t* mutex)
+{
+    sem_wait(processPtr->sem);
+    int i = 0;
+    while(i < processPtr->inst.size())
+    {
+        instruction currentInstr = processPtr->inst[i];
+        if(currentInstr.pid = -1)
+        {
+            framesPtr->frameTables[i].terminated = true;
+            break;
+        }
+
+    }
 }
 process processCreator(int id, int pages)
 {
@@ -406,7 +422,6 @@ instruction instrCreator(int id, std::string addr)
         tempAd.pageEntry= temp2;
         break;
     }
-   
     std::cout << tempAd.pageEntry;
     newInstr.ad = tempAd;
     return newInstr;
