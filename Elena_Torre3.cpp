@@ -86,7 +86,8 @@ struct pageTable
 
 process processCreator(int id, int pages);
 instruction instrCreator(int id, std::string addr);
-void paging(process* processPtr, masterFrameTable* framesPtr, sem_t* dSem, sem_t* mutex);
+void paging(process* processPtr, masterFrameTable* framesPtr, sem_t* dSem, sem_t* mutex, int idx, int frameCount);
+
 int main()
 {
     std::vector<std::string> fileCont; //string vector to store each line on the text file
@@ -267,8 +268,11 @@ int main()
     sem_t *mutex = sem_open("/mtx", O_CREAT, S_IRUSR | S_IWUSR, 1);
     sem_unlink("/mtx"); //unlink semaphore so that it is deleted when all the processes call sem_close
 
-    sem_t *driver_sem = sem_open("/drive", O_CREAT, S_IRUSR | S_IWUSR, 0);
+    sem_t *driver_sem = sem_open("/drive", O_CREAT, S_IRUSR | S_IWUSR, 0); //semaphore for the disk driver
     sem_unlink("/drive");
+
+    sem_t *driver_deact = sem_open("/drive_end", O_CREAT, S_IRUSR | S_IWUSR, 0); //semaphore to signal to the disk driver that the processes have terminated
+    sem_unlink("/drive_end");
 
     for(int i = 0; i <processList.size(); i++)
     {
@@ -293,7 +297,8 @@ int main()
         }
         else if (pid == 0) // fork once for each process
         {
-            /*paging function here*/
+            process* myPtr = &processList[i];
+            paging(myPtr, masterFrame, driver_sem, mutex, i, framesPerProcess);
 
             break;
         }
@@ -308,13 +313,46 @@ int main()
         }
         if (pid == 0)
         {
-            /*disk driver goes here*/
+            /*Disk driver*/
+            bool x = true;
+            while(x)
+            {
+                int flag = sem_trywait(driver_deact);
+                if((flag == -1)&&(errno = EAGAIN))
+                {
+                    int flag2 = sem_trywait(driver_sem);
+                    if((flag == -1)&&(errno = EAGAIN))
+                    {
+                        sleep(1);
+                    }
+                    else
+                    {
+                        sem_wait(mutex);
+                        for(int i =0; i < numb_process; i++)
+                        {
+                            if(masterFrame->frameTables[i].inQueue == true)
+                            {
+                                /*insert page modification func*/
+                                break;
+                            }
+                        }
+                        sem_post(mutex);
+                    }
+                    
+
+                }
+                else
+                {
+                    x = false;
+                }
+                
+            }   
             
         }
         
         if(pid != 0)
         {
-            /*page fault handler goes here*/
+            /*Page Fault Handler*/
         }
     }
 
@@ -329,18 +367,45 @@ int main()
 
 
 }
-void paging(process* processPtr, masterFrameTable* framesPtr, sem_t* dSem, sem_t* mutex)
+void paging(process* processPtr, masterFrameTable* framesPtr, sem_t* dSem, sem_t* mutex, int idx, int frameCount)
 {
-    sem_wait(processPtr->sem);
+    
     int i = 0;
     while(i < processPtr->inst.size())
     {
+        sem_wait(processPtr->sem);
         instruction currentInstr = processPtr->inst[i];
-        if(currentInstr.pid = -1)
+        if(currentInstr.ad.pageEntry = -1)
         {
-            framesPtr->frameTables[i].terminated = true;
+            sem_wait(mutex);
+            framesPtr->frameTables[idx].terminated = true;
+            sem_post(mutex);
             break;
         }
+        else
+        {
+            int counter = 0;
+            for(int j = 0; j < frameCount; j++)
+            {
+                if(currentInstr.ad.pageNumb == framesPtr->frameTables[idx].frames[j].pageNumb)
+                {
+                    i++;
+                    break;
+                }
+                counter++;
+                
+            }
+            if(counter >= frameCount)
+            {
+                sem_wait(mutex);
+                framesPtr->frameTables[idx].pageRequest = currentInstr.ad;
+                framesPtr->frameTables[idx].inQueue = true;
+                sem_post(dSem);
+                sem_post(mutex);
+            }
+        
+        }
+        
 
     }
 }
