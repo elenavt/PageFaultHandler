@@ -8,6 +8,9 @@
 #include <unistd.h>
 #include <semaphore.h>
 #include  <sys/shm.h>
+#include <fcntl.h>
+#include <sys/stat.h>  
+
 struct address
 {
     int pageNumb; //page number for a process
@@ -21,6 +24,7 @@ struct instruction
 struct process
 {
     int pid; //process ID
+    sem_t *sem;
     int pagesOnDisk; //# of pages
     std::vector<instruction> inst; //list of instructions. Since this is a single-processor simulation, each process will execute alone
     int pageFaults = 0;
@@ -259,17 +263,67 @@ int main()
         }
     }
 
+    /*Create needed semaphores*/
+    sem_t *mutex = sem_open("/mtx", O_CREAT, S_IRUSR | S_IWUSR, 1);
+    sem_unlink("/mtx"); //unlink semaphore so that it is deleted when all the processes call sem_close
+
+    sem_t *driver_sem = sem_open("/drive", O_CREAT, S_IRUSR | S_IWUSR, 0);
+    sem_unlink("/drive");
+
+    for(int i = 0; i <processList.size(); i++)
+    {
+        char j[1];
+        j[0] = (char)i;
+        char *name = j;
+        sem_t *pSem = sem_open(name, O_CREAT, S_IRUSR | S_IWUSR, 0);
+        sem_unlink(name);
+        processList[i].sem = pSem;
+    }
     /*Start paging*/
+
+    pid_t pid;
 
     for(int i = 0; i < processList.size(); i++)
     {
-        for(int j = 0; j < processList[i].inst.size(); j++)
+        pid = fork();
+
+        if(pid == -1)
         {
+            perror("error forking.");
+        }
+        else if (pid == 0) // fork once for each process
+        {
+            std::cout <<"process "<<i<<" goes here" << std::endl;
+        }
+    }
+    if(pid != 0)
+    {
+        pid_t pid2;
+        pid2 = fork();
+
+        if(pid2 == -1)
+        {
+            perror("error forking.");
+        }
+        if (pid2 == 0)
+        {
+            std::cout <<"disk driver goes here" << std::endl;
             
+        }
+        
+        if(pid2 != 0)
+        {
+            std::cout <<"page fault handler goes here" << std::endl;
         }
     }
 
-    std::cout <<"ya";
+    shmdt(masterFrame); //remove frame table shared memory space
+    sem_close(mutex);
+    sem_close(driver_sem);
+    for(int i = 0; i <processList.size(); i++)
+    {
+        sem_close(processList[i].sem);
+    }
     return 0;
 
 
