@@ -7,6 +7,7 @@
 #include <vector>
 #include <unistd.h>
 #include <semaphore.h>
+#include  <sys/shm.h>
 struct address
 {
     int pageNumb; //page number for a process
@@ -33,10 +34,22 @@ struct frame //content of each  page frame
 struct frameTable
 {
     int pid; //one frames table for each process to save context
+    bool inQueue = false; //to signal that the process is on the disk queue to resolve a page fault
+    bool terminated = true; //to signal the process is done executing
+    address pageRequest;
     int emptyFrames;
     int maxEmpty;
     int minEmpty;
-    std::vector<frame> frames; //list of frames on Main Memory
+    frame frames[10]; //list of frames on Main Memory
+    /*REMEMBER TO CHANGE THIS TO 1000 BEFORE SUBMITTING
+    10 IS JUST FOR TESTING*/
+    
+};
+struct masterFrameTable //struct to be placed on shared memory to give access to running processes
+{
+    frameTable frameTables[10];
+    /*REMEMBER TO CHANGE THIS TO 100 BEFORE SUBMITTING
+    10 IS JUST FOR TESTING*/
 };
 
 struct diskProcess
@@ -135,8 +148,6 @@ int main()
             temp.erase(0, 2);
             instructions.push_back(instrCreator(tempPid, temp));
         }
-        
-        
 
     }
 
@@ -161,10 +172,28 @@ int main()
         dTable.dp[i].max =baseCounter;
     }
 
+    /*Allocating shared memory for frames table*/
+
+    int memsize = sizeof(struct masterFrameTable);
+    masterFrameTable* masterFrame;
+
+    key_t key = 9876; //key for my shared memory
+    int shmid = shmget(key, memsize, IPC_CREAT | 0666);
+    if(shmid < 0)
+    {
+        perror("error allocating shared memory.");
+    }
+
+    masterFrame = reinterpret_cast<masterFrameTable*>(shmat(shmid, NULL, 0)); //pointer to my shared memory
+    if(masterFrame == (void*)-1)
+    {
+        perror("error attatching shared memory.");
+    }
+
     /*Create frame Tables for every process*/
     /*This will help me save the frames allocated to every process for context switching on a page fault*/
 
-    std::vector<frameTable> fTables;
+    
     frameTable fTable;
     fTable.maxEmpty = poolMax;
     fTable.minEmpty = poolMin;
@@ -172,17 +201,27 @@ int main()
     for(int i = 0; i < tp; i++)
     {
         frame tempFrame;
+
         tempFrame.pageNumb = 999;
         tempFrame.pid = 999;
         tempFrame.empty = true; //initialize empty frames
+        fTable.frames[i] = tempFrame;
+
         fTable.emptyFrames ++;
-        fTable.frames.push_back(tempFrame);
+        fTable.terminated = false;
+        fTable.inQueue;
+
+        address tempadr;
+        tempadr.pageEntry = 999;
+        tempadr.pageNumb = 999;
+        fTable.pageRequest = tempadr;
     }
     for(int i = 0; i <processList.size(); i++)
     {
         fTable.pid = processList[i].pid;
-        fTables.push_back(fTable);
+        masterFrame->frameTables[i] = fTable;
     }
+
 
     /*Create Page Table*/
 
@@ -201,7 +240,7 @@ int main()
             
             if(tMap.pAdress > dTable.dp[i].max)
             {
-                std::cout<<"ya done fucked up";
+                perror("address out of range");
             }
             pList.maps.push_back(tMap);
         }
