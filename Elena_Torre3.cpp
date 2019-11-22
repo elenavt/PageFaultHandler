@@ -263,6 +263,35 @@ int main()
             }
         }
     }
+    /*Create an execution sequence. It is the order in which the first instruction of each process appears on the instruction list*/
+
+    int execSeq[numb_process];
+
+    for(int i = 0; i < numb_process; i++)
+    {
+        execSeq[i] = 0;
+    }
+    int k = 0;
+    for(int i =0; i <instructions.size(); i++)
+    {
+        for(int j = 0; j < numb_process; j++)
+        {
+            if(instructions[i].pid == execSeq[j])
+            {
+                break;
+            }
+            else if(execSeq[j] == 0)
+            {
+                execSeq[j] = instructions[i].pid;
+                k++;
+                break;
+            }
+        }
+        if( k >= numb_process)
+        {
+            break;
+        }
+    }
 
     /*Create needed semaphores*/
     sem_t *mutex = sem_open("/mtx", O_CREAT, S_IRUSR | S_IWUSR, 1);
@@ -337,8 +366,7 @@ int main()
                             }
                         }
                         sem_post(mutex);
-                    }
-                    
+                    } 
 
                 }
                 else
@@ -353,6 +381,21 @@ int main()
         if(pid != 0)
         {
             /*Page Fault Handler*/
+            int terminatedProc = 0;
+            while(terminatedProc < numb_process)
+            {
+                sem_wait(mutex);
+                for(int i = 0; i < numb_process; i++)
+                {
+                
+                    if(masterFrame->frameTables[i].terminated == true)
+                    {
+                        terminatedProc++;
+                    }
+                }
+            }
+            sem_post(mutex);
+            
         }
     }
 
