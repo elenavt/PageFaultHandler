@@ -11,6 +11,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>  
 
+
 struct address
 {
     int pageNumb; //page number for a process
@@ -52,6 +53,7 @@ struct frameTable
 struct masterFrameTable //struct to be placed on shared memory to give access to running processes
 {
     frameTable frameTables[10];
+    int totalPagefaults = 0; 
     /*REMEMBER TO CHANGE THIS TO 100 BEFORE SUBMITTING
     10 IS JUST FOR TESTING*/
 };
@@ -87,7 +89,7 @@ struct pageTable
 process processCreator(int id, int pages);
 instruction instrCreator(int id, std::string addr);
 void paging(process* processPtr, masterFrameTable* framesPtr, sem_t* dSem, sem_t* mutex, int idx, int frameCount);
-
+void pageReplacementRandom(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequest);
 int main()
 {
     std::vector<std::string> fileCont; //string vector to store each line on the text file
@@ -328,6 +330,7 @@ int main()
         {
             process* myPtr = &processList[i];
             paging(myPtr, masterFrame, driver_sem, mutex, i, framesPerProcess);
+            std::cout<<"Process "<<i<<" page faults: "<<myPtr->pageFaults<<std::endl;
 
             break;
         }
@@ -361,7 +364,18 @@ int main()
                         {
                             if(masterFrame->frameTables[i].inQueue == true)
                             {
-                                /*insert page modification func*/
+                                /*Checking that address maps to the right physical address*/
+                                int pageWanted = masterFrame->frameTables[i].pageRequest.pageNumb;
+                                int diskAddress = dTable.dp[i].base + (ps * pageWanted);
+                                if(pTable.pageLists[i].maps[pageWanted].pAdress == diskAddress)
+                                {
+                                    pageReplacementRandom(masterFrame, i, framesPerProcess, masterFrame->frameTables[i].pageRequest);
+                                }
+                                else
+                                {
+                                    perror("error on address transaltion");
+                                }
+                                
                                 break;
                             }
                         }
@@ -384,6 +398,29 @@ int main()
             int terminatedProc = 0;
             while(terminatedProc < numb_process)
             {
+                int y = 0;
+                for(int i = 0; i < numb_process; i++)
+                {
+                    for(int j = 0; j < numb_process; j++)
+                    {
+                        if(masterFrame->frameTables[j].pid == execSeq[i])
+                        {
+                            break;
+                        }
+                        y++;
+                    }
+                    if(masterFrame->frameTables[y].inQueue == false && masterFrame->frameTables[y].terminated == false)
+                    {
+                        sem_post(processList[y].sem);
+                        break;
+                    }
+                    else
+                    {
+                        y = 0;
+                    }
+                    
+                    
+                }
                 sem_wait(mutex);
                 for(int i = 0; i < numb_process; i++)
                 {
@@ -393,8 +430,11 @@ int main()
                         terminatedProc++;
                     }
                 }
+                sem_post(mutex);
             }
-            sem_post(mutex);
+            sem_post(driver_deact);
+            std::cout<<"Total page faults "<< masterFrame->totalPagefaults<<std::endl;
+            
             
         }
     }
@@ -402,6 +442,7 @@ int main()
     shmdt(masterFrame); //remove frame table shared memory space
     sem_close(mutex);
     sem_close(driver_sem);
+    sem_close(driver_deact);
     for(int i = 0; i <processList.size(); i++)
     {
         sem_close(processList[i].sem);
@@ -409,6 +450,28 @@ int main()
     return 0;
 
 
+}
+void pageReplacementRandom(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequested)
+{
+    if(framesPtr->frameTables[idx].emptyFrames > framesPtr->frameTables[idx].minEmpty)
+    {
+        for(int i =0; i < frameCount; i++)
+        {
+            if(framesPtr->frameTables[idx].frames[i].empty == true)
+            {
+                framesPtr->frameTables[idx].frames[i].empty = false;
+                framesPtr->frameTables[idx].frames[i].pageNumb = pageRequested.pageNumb;
+                break;
+            }
+        }
+    }
+    else
+    {
+        int random = rand() % (framesPtr->frameTables[idx].minEmpty);
+        framesPtr->frameTables[idx].frames[random].empty = false;
+        framesPtr->frameTables[idx].frames[random].pageNumb = pageRequested.pageNumb;
+    }
+    framesPtr->totalPagefaults++;
 }
 void paging(process* processPtr, masterFrameTable* framesPtr, sem_t* dSem, sem_t* mutex, int idx, int frameCount)
 {
@@ -443,6 +506,7 @@ void paging(process* processPtr, masterFrameTable* framesPtr, sem_t* dSem, sem_t
                 sem_wait(mutex);
                 framesPtr->frameTables[idx].pageRequest = currentInstr.ad;
                 framesPtr->frameTables[idx].inQueue = true;
+                processPtr->pageFaults++;
                 sem_post(dSem);
                 sem_post(mutex);
             }
