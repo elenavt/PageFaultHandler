@@ -25,7 +25,6 @@ struct instruction
 struct process
 {
     int pid; //process ID
-    sem_t *sem;
     int pagesOnDisk; //# of pages
     std::vector<instruction> inst; //list of instructions. Since this is a single-processor simulation, each process will execute alone
     int pageFaults = 0;
@@ -88,7 +87,7 @@ struct pageTable
 
 process processCreator(int id, int pages);
 instruction instrCreator(int id, std::string addr);
-void paging(process* processPtr, masterFrameTable* framesPtr, sem_t* dSem, sem_t* mutex, int idx, int frameCount);
+void paging(process* processPtr, masterFrameTable* framesPtr, sem_t* dSem, sem_t* mutex, sem_t* mySem, int idx, int frameCount);
 void pageReplacementRandom(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequest);
 int main()
 {
@@ -164,7 +163,7 @@ int main()
     diskTable dTable; 
 
     dTable.diskSize = 0; //initialize at 0
-    for(int i = 0; i < processList.size(); i++)
+    for(int i = 0; i < numb_process; i++)
     {
         diskProcess diskP;
         dTable.diskSize += (processList[i].pagesOnDisk * ps);
@@ -172,7 +171,7 @@ int main()
         dTable.dp.push_back(diskP);
     }
     int baseCounter = 0; //counter to set the base and max addresses for each process
-    for(int i = 0; i < processList.size(); i++)
+    for(int i = 0; i < numb_process; i++)
     {
         dTable.dp[i].base = baseCounter; //set base
         baseCounter += (processList[i].pagesOnDisk *ps); // use base counter to save max
@@ -223,7 +222,7 @@ int main()
         tempadr.pageNumb = 999;
         fTable.pageRequest = tempadr;
     }
-    for(int i = 0; i <processList.size(); i++)
+    for(int i = 0; i <numb_process; i++)
     {
         fTable.pid = processList[i].pid;
         masterFrame->frameTables[i] = fTable;
@@ -234,7 +233,7 @@ int main()
 
     pageTable pTable;
     
-    for(int i = 0; i < processList.size(); i++)
+    for(int i = 0; i < numb_process; i++)
     {
         pageList pList;
         pList.pid = processList[i].pid;
@@ -255,7 +254,7 @@ int main()
     }
 
     /*Assign an instruction list to each process*/
-    for(int i = 0; i < processList.size(); i++)
+    for(int i = 0; i < numb_process; i++)
     {
         for(int j = 0; j <instructions.size(); j++)
         {
@@ -297,22 +296,36 @@ int main()
 
     /*Create needed semaphores*/
     sem_t *mutex = sem_open("/mtx", O_CREAT, S_IRUSR | S_IWUSR, 1);
+    if (mutex == SEM_FAILED) {
+      perror("sem_open() failed ");
+    }
     sem_unlink("/mtx"); //unlink semaphore so that it is deleted when all the processes call sem_close
-
+    
     sem_t *driver_sem = sem_open("/drive", O_CREAT, S_IRUSR | S_IWUSR, 0); //semaphore for the disk driver
+    if (driver_sem == SEM_FAILED) {
+      perror("sem_open() failed ");
+    }
     sem_unlink("/drive");
 
     sem_t *driver_deact = sem_open("/drive_end", O_CREAT, S_IRUSR | S_IWUSR, 0); //semaphore to signal to the disk driver that the processes have terminated
+    if (driver_deact == SEM_FAILED) {
+      perror("sem_open() failed ");
+    }
     sem_unlink("/drive_end");
 
-    for(int i = 0; i <processList.size(); i++)
+    sem_t *procSems[numb_process];
+    for(int i = 0; i <numb_process; i++)
     {
-        char j[1];
-        j[0] = (char)i;
+        char j[3];
+        j[0] = '/';
+        j[1] = rand() % 10;
+        j[2] = rand() % 10;
         char *name = j;
-        sem_t *pSem = sem_open(name, O_CREAT, S_IRUSR | S_IWUSR, 0);
+        procSems[i] = sem_open(name, O_CREAT, S_IRUSR | S_IWUSR, 0);
+        if (procSems[i] == SEM_FAILED) {
+            perror("sem_open() failed ");
+        }
         sem_unlink(name);
-        processList[i].sem = pSem;
     }
     /*Start paging*/
 
@@ -329,7 +342,7 @@ int main()
         else if (pid == 0) // fork once for each process
         {
             process* myPtr = &processList[i];
-            paging(myPtr, masterFrame, driver_sem, mutex, i, framesPerProcess);
+            paging(myPtr, masterFrame, driver_sem, mutex, procSems[i], i, framesPerProcess);
             std::cout<<"Process "<<i<<" page faults: "<<myPtr->pageFaults<<std::endl;
 
             break;
@@ -365,16 +378,17 @@ int main()
                             if(masterFrame->frameTables[i].inQueue == true)
                             {
                                 /*Checking that address maps to the right physical address*/
-                                int pageWanted = masterFrame->frameTables[i].pageRequest.pageNumb;
+                                /*int pageWanted = masterFrame->frameTables[i].pageRequest.pageNumb;
                                 int diskAddress = dTable.dp[i].base + (ps * pageWanted);
                                 if(pTable.pageLists[i].maps[pageWanted].pAdress == diskAddress)
-                                {
+                                {*/
+                                    std::cout<<"Did we get this far"<<std::endl;
                                     pageReplacementRandom(masterFrame, i, framesPerProcess, masterFrame->frameTables[i].pageRequest);
-                                }
+                                /*}
                                 else
                                 {
                                     perror("error on address transaltion");
-                                }
+                                }*/
                                 
                                 break;
                             }
@@ -411,7 +425,7 @@ int main()
                     }
                     if(masterFrame->frameTables[y].inQueue == false && masterFrame->frameTables[y].terminated == false)
                     {
-                        sem_post(processList[y].sem);
+                        sem_post(procSems[y]);
                         break;
                     }
                     else
@@ -443,9 +457,9 @@ int main()
     sem_close(mutex);
     sem_close(driver_sem);
     sem_close(driver_deact);
-    for(int i = 0; i <processList.size(); i++)
+    for(int i = 0; i <numb_process; i++)
     {
-        sem_close(processList[i].sem);
+        sem_close(procSems[i]);
     }
     return 0;
 
@@ -473,13 +487,14 @@ void pageReplacementRandom(masterFrameTable* framesPtr, int idx, int frameCount,
     }
     framesPtr->totalPagefaults++;
 }
-void paging(process* processPtr, masterFrameTable* framesPtr, sem_t* dSem, sem_t* mutex, int idx, int frameCount)
+void paging(process* processPtr, masterFrameTable* framesPtr, sem_t* dSem, sem_t* mutex, sem_t* mySem, int idx, int frameCount)
 {
     
     int i = 0;
     while(i < processPtr->inst.size())
     {
-        sem_wait(processPtr->sem);
+        sem_wait(mySem);
+        
         instruction currentInstr = processPtr->inst[i];
         if(currentInstr.ad.pageEntry = -1)
         {
@@ -490,6 +505,7 @@ void paging(process* processPtr, masterFrameTable* framesPtr, sem_t* dSem, sem_t
         }
         else
         {
+            std::cout<<"Did the logic work?"<<std::endl;
             int counter = 0;
             for(int j = 0; j < frameCount; j++)
             {
@@ -503,6 +519,7 @@ void paging(process* processPtr, masterFrameTable* framesPtr, sem_t* dSem, sem_t
             }
             if(counter >= frameCount)
             {
+                std::cout<<"did we get to page replacement"<<std::endl;
                 sem_wait(mutex);
                 framesPtr->frameTables[idx].pageRequest = currentInstr.ad;
                 framesPtr->frameTables[idx].inQueue = true;
