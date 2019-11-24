@@ -53,6 +53,8 @@ struct masterFrameTable //struct to be placed on shared memory to give access to
 {
     frameTable frameTables[10];
     int totalPagefaults = 0; 
+    int totalInstructions;
+    int instructionsSoFar;
     /*REMEMBER TO CHANGE THIS TO 100 BEFORE SUBMITTING
     10 IS JUST FOR TESTING*/
 };
@@ -228,6 +230,8 @@ int main()
         fTable.pid = processList[i].pid;
         masterFrame->frameTables[i] = fTable;
     }
+    masterFrame->totalInstructions = instructions.size();
+    masterFrame->instructionsSoFar = 0;
 
 
     /*Create Page Table*/
@@ -479,6 +483,7 @@ void pageReplacementRandom(masterFrameTable* framesPtr, int idx, int frameCount,
                 framesPtr->frameTables[idx].frames[i].empty = false;
                 framesPtr->frameTables[idx].frames[i].pageNumb = pageRequested.pageNumb;
                 framesPtr->frameTables[idx].inQueue = false;
+                framesPtr->frameTables[idx].emptyFrames--;
                 break;
             }
         }
@@ -494,18 +499,20 @@ void pageReplacementRandom(masterFrameTable* framesPtr, int idx, int frameCount,
 }
 bool frameSearch(frameTable* ft, int pageNumb, int frameCount)
 {
-    std::cout<<"we invoqued the function"<<std::endl;
+    
     int flag = 0;
     for(int i = 0; i < frameCount; i++)
     {
         if(ft->frames[i].pageNumb == pageNumb)
         {
+            std::cout<<"we invoqued the function and it returned true"<<std::endl;
             return true;
         }
         flag++;
     }
     if(flag >= frameCount)
     {
+        std::cout<<"we invoqued the function and it returned false"<<std::endl;
         return false;
     }
     else
@@ -536,7 +543,8 @@ void paging(process* processPtr, masterFrameTable* framesPtr, sem_t* dSem, sem_t
             bool inFrames = frameSearch(&framesPtr->frameTables[idx], currentInstr.ad.pageNumb, frameCount);
             if(inFrames == true)
             {
-                std::cout<<"Bruh TF"<<std::endl;
+                std::cout<<"instruction processed"<<std::endl;
+                framesPtr->instructionsSoFar++;
                 i++;
             }
             else
