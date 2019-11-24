@@ -89,6 +89,7 @@ process processCreator(int id, int pages);
 instruction instrCreator(int id, std::string addr);
 void paging(process* processPtr, masterFrameTable* framesPtr, sem_t* dSem, sem_t* mutex, sem_t* mySem, int idx, int frameCount);
 void pageReplacementRandom(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequest);
+bool frameSearch(frameTable ft, int pageNumb, int frameCount);
 int main()
 {
     std::vector<std::string> fileCont; //string vector to store each line on the text file
@@ -366,12 +367,14 @@ int main()
                 if((flag == -1)&&(errno = EAGAIN))
                 {
                     int flag2 = sem_trywait(driver_sem);
-                    if((flag == -1)&&(errno = EAGAIN))
+                    if((flag2 == -1)&&(errno = EAGAIN))
                     {
+
                         sleep(1);
                     }
                     else
                     {
+                        std::cout<<"driver has been invoqued"<<std::endl;
                         sem_wait(mutex);
                         for(int i =0; i < numb_process; i++)
                         {
@@ -439,7 +442,7 @@ int main()
                 for(int i = 0; i < numb_process; i++)
                 {
                 
-                    if(masterFrame->frameTables[i].terminated == true)
+                   if(masterFrame->frameTables[i].terminated == true)
                     {
                         terminatedProc++;
                     }
@@ -475,6 +478,7 @@ void pageReplacementRandom(masterFrameTable* framesPtr, int idx, int frameCount,
             {
                 framesPtr->frameTables[idx].frames[i].empty = false;
                 framesPtr->frameTables[idx].frames[i].pageNumb = pageRequested.pageNumb;
+                framesPtr->frameTables[idx].inQueue = false;
                 break;
             }
         }
@@ -484,8 +488,31 @@ void pageReplacementRandom(masterFrameTable* framesPtr, int idx, int frameCount,
         int random = rand() % (framesPtr->frameTables[idx].minEmpty);
         framesPtr->frameTables[idx].frames[random].empty = false;
         framesPtr->frameTables[idx].frames[random].pageNumb = pageRequested.pageNumb;
+        framesPtr->frameTables[idx].inQueue = false;
     }
     framesPtr->totalPagefaults++;
+}
+bool frameSearch(frameTable* ft, int pageNumb, int frameCount)
+{
+    std::cout<<"we invoqued the function"<<std::endl;
+    int flag = 0;
+    for(int i = 0; i < frameCount; i++)
+    {
+        if(ft->frames[i].pageNumb == pageNumb)
+        {
+            return true;
+        }
+        flag++;
+    }
+    if(flag >= frameCount)
+    {
+        return false;
+    }
+    else
+    {
+        return false;
+    }
+    
 }
 void paging(process* processPtr, masterFrameTable* framesPtr, sem_t* dSem, sem_t* mutex, sem_t* mySem, int idx, int frameCount)
 {
@@ -496,7 +523,7 @@ void paging(process* processPtr, masterFrameTable* framesPtr, sem_t* dSem, sem_t
         sem_wait(mySem);
         
         instruction currentInstr = processPtr->inst[i];
-        if(currentInstr.ad.pageEntry = -1)
+        if(currentInstr.ad.pageEntry == -1)
         {
             sem_wait(mutex);
             framesPtr->frameTables[idx].terminated = true;
@@ -505,19 +532,14 @@ void paging(process* processPtr, masterFrameTable* framesPtr, sem_t* dSem, sem_t
         }
         else
         {
-            std::cout<<"Did the logic work?"<<std::endl;
-            int counter = 0;
-            for(int j = 0; j < frameCount; j++)
+            
+            bool inFrames = frameSearch(&framesPtr->frameTables[idx], currentInstr.ad.pageNumb, frameCount);
+            if(inFrames == true)
             {
-                if(currentInstr.ad.pageNumb == framesPtr->frameTables[idx].frames[j].pageNumb)
-                {
-                    i++;
-                    break;
-                }
-                counter++;
-                
+                std::cout<<"Bruh TF"<<std::endl;
+                i++;
             }
-            if(counter >= frameCount)
+            else
             {
                 std::cout<<"did we get to page replacement"<<std::endl;
                 sem_wait(mutex);
@@ -588,7 +610,6 @@ instruction instrCreator(int id, std::string addr)
     {
     case 'A':
         tempAd.pageEntry = 10;
-        std::cout << tempAd.pageEntry;
         break;
     case 'B':
         tempAd.pageEntry= 11;
@@ -611,7 +632,7 @@ instruction instrCreator(int id, std::string addr)
         tempAd.pageEntry= temp2;
         break;
     }
-    std::cout << tempAd.pageEntry;
+
     newInstr.ad = tempAd;
     return newInstr;
 }
