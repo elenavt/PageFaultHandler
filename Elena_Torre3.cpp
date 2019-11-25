@@ -27,11 +27,9 @@ struct process
     int pid; //process ID
     int pagesOnDisk; //# of pages
     std::vector<instruction> inst; //list of instructions. Since this is a single-processor simulation, each process will execute alone
-    int pageFaults = 0;
 };
 struct frame //content of each  page frame
 {
-    int pid; //process address space
     int pageNumb; //page number
     bool empty;
 };
@@ -41,6 +39,7 @@ struct frameTable
     bool inQueue = false; //to signal that the process is on the disk queue to resolve a page fault
     bool terminated = true; //to signal the process is done executing
     address pageRequest;
+    int pageFaults = 0;
     int emptyFrames;
     int maxEmpty;
     int minEmpty;
@@ -212,7 +211,6 @@ int main()
         frame tempFrame;
 
         tempFrame.pageNumb = 999;
-        tempFrame.pid = 999;
         tempFrame.empty = true; //initialize empty frames
         fTable.frames[i] = tempFrame;
 
@@ -228,10 +226,12 @@ int main()
     for(int i = 0; i <numb_process; i++)
     {
         fTable.pid = processList[i].pid;
+        fTable.pageFaults = 0;
         masterFrame->frameTables[i] = fTable;
     }
     masterFrame->totalInstructions = instructions.size();
     masterFrame->instructionsSoFar = 0;
+    masterFrame->totalPagefaults =0;
 
 
     /*Create Page Table*/
@@ -348,7 +348,7 @@ int main()
         {
             process* myPtr = &processList[i];
             paging(myPtr, masterFrame, driver_sem, mutex, procSems[i], i, framesPerProcess);
-            std::cout<<"Process "<<i<<" page faults: "<<myPtr->pageFaults<<std::endl;
+            std::cout<<"Process "<<i<<" page faults: "<<std::to_string(masterFrame->frameTables[i].pageFaults)<<std::endl;
 
             break;
         }
@@ -378,24 +378,24 @@ int main()
                     }
                     else
                     {
-                        std::cout<<"driver has been invoqued"<<std::endl;
                         sem_wait(mutex);
                         for(int i =0; i < numb_process; i++)
                         {
                             if(masterFrame->frameTables[i].inQueue == true)
                             {
                                 /*Checking that address maps to the right physical address*/
-                                /*int pageWanted = masterFrame->frameTables[i].pageRequest.pageNumb;
+                                int pageWanted = masterFrame->frameTables[i].pageRequest.pageNumb;
                                 int diskAddress = dTable.dp[i].base + (ps * pageWanted);
                                 if(pTable.pageLists[i].maps[pageWanted].pAdress == diskAddress)
-                                {*/
-                                    std::cout<<"Did we get this far"<<std::endl;
+                                {
                                     pageReplacementRandom(masterFrame, i, framesPerProcess, masterFrame->frameTables[i].pageRequest);
-                                /*}
+                                    masterFrame->frameTables[i].pageFaults++;
+                                    masterFrame->totalPagefaults++;
+                                }
                                 else
                                 {
                                     perror("error on address transaltion");
-                                }*/
+                                }
                                 
                                 break;
                             }
@@ -419,6 +419,7 @@ int main()
             int terminatedProc = 0;
             while(terminatedProc < numb_process)
             {
+                terminatedProc = 0;
                 int y = 0;
                 for(int i = 0; i < numb_process; i++)
                 {
@@ -439,7 +440,6 @@ int main()
                     {
                         y = 0;
                     }
-                    
                     
                 }
                 sem_wait(mutex);
@@ -476,7 +476,7 @@ void pageReplacementRandom(masterFrameTable* framesPtr, int idx, int frameCount,
 {
     if(framesPtr->frameTables[idx].emptyFrames > framesPtr->frameTables[idx].minEmpty)
     {
-        for(int i =0; i < frameCount; i++)
+        for(int i =0; i < framesPtr->frameTables[idx].minEmpty; i++)
         {
             if(framesPtr->frameTables[idx].frames[i].empty == true)
             {
@@ -495,7 +495,7 @@ void pageReplacementRandom(masterFrameTable* framesPtr, int idx, int frameCount,
         framesPtr->frameTables[idx].frames[random].pageNumb = pageRequested.pageNumb;
         framesPtr->frameTables[idx].inQueue = false;
     }
-    framesPtr->totalPagefaults++;
+    
 }
 bool frameSearch(frameTable* ft, int pageNumb, int frameCount)
 {
@@ -505,14 +505,12 @@ bool frameSearch(frameTable* ft, int pageNumb, int frameCount)
     {
         if(ft->frames[i].pageNumb == pageNumb)
         {
-            std::cout<<"we invoqued the function and it returned true"<<std::endl;
             return true;
         }
         flag++;
     }
     if(flag >= frameCount)
     {
-        std::cout<<"we invoqued the function and it returned false"<<std::endl;
         return false;
     }
     else
@@ -525,10 +523,10 @@ void paging(process* processPtr, masterFrameTable* framesPtr, sem_t* dSem, sem_t
 {
     
     int i = 0;
+    
     while(i < processPtr->inst.size())
     {
         sem_wait(mySem);
-        
         instruction currentInstr = processPtr->inst[i];
         if(currentInstr.ad.pageEntry == -1)
         {
@@ -543,17 +541,16 @@ void paging(process* processPtr, masterFrameTable* framesPtr, sem_t* dSem, sem_t
             bool inFrames = frameSearch(&framesPtr->frameTables[idx], currentInstr.ad.pageNumb, frameCount);
             if(inFrames == true)
             {
-                std::cout<<"instruction processed"<<std::endl;
+                sem_wait(mutex);
                 framesPtr->instructionsSoFar++;
+                sem_post(mutex);
                 i++;
             }
             else
             {
-                std::cout<<"did we get to page replacement"<<std::endl;
                 sem_wait(mutex);
                 framesPtr->frameTables[idx].pageRequest = currentInstr.ad;
                 framesPtr->frameTables[idx].inQueue = true;
-                processPtr->pageFaults++;
                 sem_post(dSem);
                 sem_post(mutex);
             }
