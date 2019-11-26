@@ -32,6 +32,7 @@ struct frame //content of each  page frame
 {
     int pageNumb; //page number
     bool empty;
+    int FirstIn = 0;
 };
 struct frameTable
 {
@@ -39,6 +40,7 @@ struct frameTable
     bool inQueue = false; //to signal that the process is on the disk queue to resolve a page fault
     bool terminated = true; //to signal the process is done executing
     address pageRequest;
+    int PagesReferenced = 0;
     int pageFaults = 0;
     int emptyFrames;
     int maxEmpty;
@@ -89,7 +91,10 @@ struct pageTable
 process processCreator(int id, int pages);
 instruction instrCreator(int id, std::string addr);
 void paging(process* processPtr, masterFrameTable* framesPtr, sem_t* dSem, sem_t* mutex, sem_t* mySem, int idx, int frameCount);
-void pageReplacementRandom(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequest);
+void pageReplacementRandom(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequested);
+void pageReplacementFIFO(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequested);
+void pageReplacementLDF(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequested);
+void pageReplacementLFU(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequested);
 bool frameSearch(frameTable ft, int pageNumb, int frameCount);
 int main()
 {
@@ -227,6 +232,7 @@ int main()
     {
         fTable.pid = processList[i].pid;
         fTable.pageFaults = 0;
+        fTable.PagesReferenced = 0;
         masterFrame->frameTables[i] = fTable;
     }
     masterFrame->totalInstructions = instructions.size();
@@ -348,7 +354,7 @@ int main()
         {
             process* myPtr = &processList[i];
             paging(myPtr, masterFrame, driver_sem, mutex, procSems[i], i, framesPerProcess);
-            std::cout<<"Process "<<i<<" page faults: "<<std::to_string(masterFrame->frameTables[i].pageFaults)<<std::endl;
+            std::cout<<"Process "<<std::to_string(i+1)<<" page faults: "<<std::to_string(masterFrame->frameTables[i].pageFaults)<<std::endl;
 
             break;
         }
@@ -388,7 +394,9 @@ int main()
                                 int diskAddress = dTable.dp[i].base + (ps * pageWanted);
                                 if(pTable.pageLists[i].maps[pageWanted].pAdress == diskAddress)
                                 {
-                                    pageReplacementRandom(masterFrame, i, framesPerProcess, masterFrame->frameTables[i].pageRequest);
+                                    //pageReplacementFIFO(masterFrame, i, framesPerProcess, masterFrame->frameTables[i].pageRequest);
+                                    //pageReplacementRandom(masterFrame, i, framesPerProcess, masterFrame->frameTables[i].pageRequest);
+                                    pageReplacementLDF(masterFrame, i, framesPerProcess, masterFrame->frameTables[i].pageRequest);
                                     masterFrame->frameTables[i].pageFaults++;
                                     masterFrame->totalPagefaults++;
                                 }
@@ -493,6 +501,82 @@ void pageReplacementRandom(masterFrameTable* framesPtr, int idx, int frameCount,
         int random = rand() % (framesPtr->frameTables[idx].minEmpty);
         framesPtr->frameTables[idx].frames[random].empty = false;
         framesPtr->frameTables[idx].frames[random].pageNumb = pageRequested.pageNumb;
+        framesPtr->frameTables[idx].inQueue = false;
+    }
+    
+}
+void pageReplacementFIFO(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequested)
+{
+    
+    if(framesPtr->frameTables[idx].emptyFrames > framesPtr->frameTables[idx].minEmpty)
+    {
+        for(int i =0; i < framesPtr->frameTables[idx].minEmpty; i++)
+        {
+            if(framesPtr->frameTables[idx].frames[i].empty == true)
+            {
+                framesPtr->frameTables[idx].frames[i].empty = false;
+                framesPtr->frameTables[idx].frames[i].pageNumb = pageRequested.pageNumb;
+                framesPtr->frameTables[idx].inQueue = false;
+                framesPtr->frameTables[idx].emptyFrames--;
+                framesPtr->frameTables[idx].PagesReferenced++;
+                framesPtr->frameTables[idx].frames[i].FirstIn = framesPtr->frameTables[idx].PagesReferenced;
+                break;
+            }
+        }
+    }
+    else
+    {
+        int FIFO = INT16_MAX;
+        int winnerIdx = 0;
+        for(int i = 0; i <framesPtr->frameTables[idx].minEmpty; i++)
+        {
+            if(framesPtr->frameTables[idx].frames[i].FirstIn < FIFO)
+            {
+                FIFO = framesPtr->frameTables[idx].frames[i].FirstIn;
+                winnerIdx = i;
+
+            }
+        }
+        framesPtr->frameTables[idx].frames[winnerIdx].empty = false;
+        framesPtr->frameTables[idx].frames[winnerIdx].pageNumb = pageRequested.pageNumb;
+        framesPtr->frameTables[idx].inQueue = false;
+        framesPtr->frameTables[idx].PagesReferenced++;
+        framesPtr->frameTables[idx].frames[winnerIdx].FirstIn = framesPtr->frameTables[idx].PagesReferenced;
+
+    }
+    
+}
+void pageReplacementLDF(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequested)
+{
+     if(framesPtr->frameTables[idx].emptyFrames > framesPtr->frameTables[idx].minEmpty)
+    {
+        for(int i =0; i < framesPtr->frameTables[idx].minEmpty; i++)
+        {
+            if(framesPtr->frameTables[idx].frames[i].empty == true)
+            {
+                framesPtr->frameTables[idx].frames[i].empty = false;
+                framesPtr->frameTables[idx].frames[i].pageNumb = pageRequested.pageNumb;
+                framesPtr->frameTables[idx].inQueue = false;
+                framesPtr->frameTables[idx].emptyFrames--;
+                break;
+            }
+        }
+    }
+    else
+    {
+        int maxDistance = 0;
+        int winnerIdx;
+        for(int i =0; i < framesPtr->frameTables[idx].minEmpty; i++)
+        {
+            int distance = abs(framesPtr->frameTables[idx].frames[i].pageNumb - pageRequested.pageNumb);
+            if(distance > maxDistance)
+            {
+                maxDistance = distance;
+                winnerIdx = i;
+            }
+        }
+        framesPtr->frameTables[idx].frames[winnerIdx].empty = false;
+        framesPtr->frameTables[idx].frames[winnerIdx].pageNumb = pageRequested.pageNumb;
         framesPtr->frameTables[idx].inQueue = false;
     }
     
