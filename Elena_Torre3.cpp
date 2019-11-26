@@ -430,6 +430,7 @@ int main()
                                     //pageReplacementLFU(masterFrame, i, framesPerProcess, masterFrame->frameTables[i].pageRequest);
                                     //pageReplacementOPT(masterFrame, i, framesPerProcess, masterFrame->frameTables[i].pageRequest, lookahead);
                                     //frameUpdateWS(masterFrame, i, framesPerProcess);
+                                    pageReplacementLRU(masterFrame, i, framesPerProcess, masterFrame->frameTables[i].pageRequest);
                                     masterFrame->frameTables[i].pageFaults++;
                                     masterFrame->totalPagefaults++;
                                 }
@@ -762,6 +763,54 @@ void frameUpdateWS(masterFrameTable* framesPtr, int idx, int delta)
             i++;
         }
         
+    }
+}
+void pageReplacementLRU(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequested)
+{
+    if(framesPtr->frameTables[idx].emptyFrames > framesPtr->frameTables[idx].minEmpty)
+    {
+        for(int i =0; i < framesPtr->frameTables[idx].minEmpty; i++)
+        {
+            if(framesPtr->frameTables[idx].frames[i].empty == true)
+            {
+                framesPtr->frameTables[idx].frames[i].empty = false;
+                framesPtr->frameTables[idx].frames[i].pageNumb = pageRequested.pageNumb;
+                framesPtr->frameTables[idx].inQueue = false;
+                framesPtr->frameTables[idx].emptyFrames--;
+                framesPtr->frameTables[idx].refIdx++;
+                break;
+            }
+        }
+    }
+    else
+    {
+        int maxDistance = 0;
+        int winnerIdx;
+        for(int i = 0; i << framesPtr->frameTables[idx].minEmpty; i++)
+        {
+            int distanceToLastUse = 0;
+            for(int j = framesPtr->frameTables[idx].refIdx; j >= 0; j--)
+            {
+                if(framesPtr->frameTables[idx].frames[i].pageNumb != framesPtr->frameTables[idx].refList[j].pageNumb)
+                {
+                    distanceToLastUse++;
+                }
+                else
+                {
+                    break;
+                }
+                
+            }
+            if(distanceToLastUse > maxDistance)
+            {
+                maxDistance = distanceToLastUse;
+                winnerIdx =i;
+            }
+        }
+        framesPtr->frameTables[idx].frames[winnerIdx].empty = false;
+        framesPtr->frameTables[idx].frames[winnerIdx].pageNumb = pageRequested.pageNumb;
+        framesPtr->frameTables[idx].inQueue = false;
+        framesPtr->frameTables[idx].refIdx++;
     }
 }
 bool frameSearch(frameTable* ft, int pageNumb, int frameCount)
