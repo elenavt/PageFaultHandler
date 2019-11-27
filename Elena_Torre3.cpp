@@ -384,8 +384,9 @@ int main()
             process* myPtr = &processList[i];
             paging(myPtr, masterFrame, driver_sem, mutex, procSems[i], i, framesPerProcess);
             std::cout<<"Process "<<std::to_string(i+1)<<" page faults: "<<std::to_string(masterFrame->frameTables[i].pageFaults)<<std::endl;
+            /*FOR WORKING SET ONLY*/
             std::cout<<"Process "<<std::to_string(i+1)<<" max working set: "<<std::to_string(masterFrame->frameTables[i].maxWorkingSet)<<std::endl;
-
+            
             break;
         }
     }
@@ -430,7 +431,7 @@ int main()
                                     //pageReplacementLFU(masterFrame, i, framesPerProcess, masterFrame->frameTables[i].pageRequest);
                                     //pageReplacementOPT(masterFrame, i, framesPerProcess, masterFrame->frameTables[i].pageRequest, lookahead);
                                     //frameUpdateWS(masterFrame, i, framesPerProcess);
-                                    pageReplacementLRU(masterFrame, i, framesPerProcess, masterFrame->frameTables[i].pageRequest);
+                                    //pageReplacementLRU(masterFrame, i, framesPerProcess, masterFrame->frameTables[i].pageRequest);
                                     masterFrame->frameTables[i].pageFaults++;
                                     masterFrame->totalPagefaults++;
                                 }
@@ -724,16 +725,18 @@ void frameUpdateWS(masterFrameTable* framesPtr, int idx, int delta)
             framesPtr->frameTables[idx].frames[i].empty = true;
         }
     }
-    int i = 0;
     bool flag2 = true;
     while(flag2)
     {
         if(j <= framesPtr->frameTables[idx].refIdx)
         {
+            for(int i = 0; i < framesPtr->frameTables[idx].pagesOnDisk; i++)
+            {
+                
+            }
             framesPtr->frameTables[idx].frames[i].pageNumb = framesPtr->frameTables[idx].refList[j].pageNumb;
             framesPtr->frameTables[idx].frames[i].empty = false;
             j++;
-            i++;
 
         }
         else
@@ -786,7 +789,7 @@ void pageReplacementLRU(masterFrameTable* framesPtr, int idx, int frameCount, ad
     {
         int maxDistance = 0;
         int winnerIdx;
-        for(int i = 0; i << framesPtr->frameTables[idx].minEmpty; i++)
+        for(int i = 0; i < framesPtr->frameTables[idx].minEmpty; i++)
         {
             int distanceToLastUse = 0;
             for(int j = framesPtr->frameTables[idx].refIdx; j >= 0; j--)
@@ -855,12 +858,12 @@ void paging(process* processPtr, masterFrameTable* framesPtr, sem_t* dSem, sem_t
         {
             /*IF USING WORKIGN SET REPLACE frameCount WITH framesPtr->frameTables[idx].pagesOnDisk*/
             /*FOR ALL OTHER REPLACEMENT ALGORITHMS USE frameCount */
-            bool inFrames = frameSearch(&framesPtr->frameTables[idx], currentInstr.ad.pageNumb, frameCount);
+            bool inFrames = frameSearch(&framesPtr->frameTables[idx], currentInstr.ad.pageNumb, framesPtr->frameTables[idx].pagesOnDisk);
             if(inFrames == true)
             {
                 sem_wait(mutex);
                 framesPtr->instructionsSoFar++;
-                //frameUpdateWS(framesPtr, idx, frameCount); //EXCLUSIVE TO WORKING SET 
+                frameUpdateWS(framesPtr, idx, frameCount); //EXCLUSIVE TO WORKING SET: Instead of page replacement we will "update" the working set
                 sem_post(mutex);
                 i++;
             }
