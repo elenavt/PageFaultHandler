@@ -335,7 +335,7 @@ int main()
     }
 
     /*Create needed semaphores*/
-    sem_t *mutex = sem_open("/mtx", O_CREAT, S_IRUSR | S_IWUSR, 1);
+    sem_t *mutex = sem_open("/mtx", O_CREAT, S_IRUSR | S_IWUSR, 1); //mutex to control access to shared memory. No 2 processes can modify it at once
     if (mutex == SEM_FAILED) {
       perror("sem_open() failed ");
     }
@@ -411,32 +411,39 @@ int main()
                 int flag = sem_trywait(driver_deact); //Check if PageFault Handler process has signaled that all processes are over
                 if((flag == -1)&&(errno = EAGAIN))
                 {
-                    int flag2 = sem_trywait(driver_sem);
+                    int flag2 = sem_trywait(driver_sem); //check if any process has had a page fault
                     if((flag2 == -1)&&(errno = EAGAIN))
                     {
 
-                        sleep(1);
+                        sleep(1); //if not wait 1 second
                     }
                     else
                     {
                         sem_wait(mutex);
                         for(int i =0; i < numb_process; i++)
                         {
+                            //Find first process in queue
                             if(masterFrame->frameTables[i].inQueue == true)
                             {
-                                /*Checking that address maps to the right physical address*/
+                                /*Checking that address maps to the right physical address on disk*/
                                 int pageWanted = masterFrame->frameTables[i].pageRequest.pageNumb;
                                 int diskAddress = dTable.dp[i].base + (ps * pageWanted);
                                 if(pTable.pageLists[i].maps[pageWanted].pAdress == diskAddress)
                                 {
+                                    /*To test any replacement algorithm except Working Set, uncomment the corresponding function call
+                                    and comment all others*/
                                     //pageReplacementFIFO(masterFrame, i, framesPerProcess, masterFrame->frameTables[i].pageRequest);
                                     //pageReplacementRandom(masterFrame, i, framesPerProcess, masterFrame->frameTables[i].pageRequest);
                                     //pageReplacementLDF(masterFrame, i, framesPerProcess, masterFrame->frameTables[i].pageRequest);
                                     //pageReplacementLFU(masterFrame, i, framesPerProcess, masterFrame->frameTables[i].pageRequest);
                                     //pageReplacementLRU(masterFrame, i, framesPerProcess, masterFrame->frameTables[i].pageRequest);
                                     //pageReplacementOPT(masterFrame, i, framesPerProcess, masterFrame->frameTables[i].pageRequest, lookahead);
-                                    //pageReplacementWS(masterFrame, i, masterFrame->frameTables[i].pagesOnDisk, masterFrame->frameTables[i].pageRequest);
                                     pageReplacementLRUX(masterFrame, i, framesPerProcess, masterFrame->frameTables[i].pageRequest, lookahead);
+
+                                    /*For Working Set uncomment function call bellow AND uncomment/modify additional function calls 
+                                    WITHIN paging function*/
+                                    //pageReplacementWS(masterFrame, i, masterFrame->frameTables[i].pagesOnDisk, masterFrame->frameTables[i].pageRequest);
+                                    
                                     masterFrame->frameTables[i].pageFaults++;
                                     masterFrame->totalPagefaults++;
                                 }
@@ -463,7 +470,8 @@ int main()
         
         if(pid != 0)
         {
-            /*Page Fault Handler*/
+            /*Page Fault Handler process: will give processes the signal to execute instructions depending on their position on the
+            execution sequence and whether or not they are in queue/terminated*/
             int terminatedProc = 0;
             while(terminatedProc < numb_process)
             {
@@ -473,12 +481,14 @@ int main()
                 {
                     for(int j = 0; j < numb_process; j++)
                     {
+                        /*Select next process on execution list*/
                         if(masterFrame->frameTables[j].pid == execSeq[i])
                         {
                             break;
                         }
                         y++;
                     }
+                    /* In not in queue or terminated, signal*/
                     if(masterFrame->frameTables[y].inQueue == false && masterFrame->frameTables[y].terminated == false)
                     {
                         sem_post(procSems[y]);
@@ -491,7 +501,7 @@ int main()
                     
                 }
                 sem_wait(mutex);
-                for(int i = 0; i < numb_process; i++)
+                for(int i = 0; i < numb_process; i++) //checl how many processes have terminated
                 {
                 
                    if(masterFrame->frameTables[i].terminated == true)
@@ -501,6 +511,7 @@ int main()
                 }
                 sem_post(mutex);
             }
+            /*When all processes are done executing, signal disk driver to terminate as well*/
             sem_post(driver_deact);
             std::cout<<"Total page faults "<< masterFrame->totalPagefaults<<std::endl;
             
@@ -508,7 +519,8 @@ int main()
         }
     }
 
-    shmdt(masterFrame); //remove frame table shared memory space
+    /*Remove table from shared memory space and close all semaphores*/
+    shmdt(masterFrame); 
     sem_close(mutex);
     sem_close(driver_sem);
     sem_close(driver_deact);
@@ -522,6 +534,7 @@ int main()
 }
 void pageReplacementRandom(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequested)
 {
+    /*If there are still empty frames on table, put needed frame on one */
     if(framesPtr->frameTables[idx].emptyFrames > framesPtr->frameTables[idx].minEmpty)
     {
         for(int i =0; i < (framesPtr->frameTables[idx].maxEmpty - framesPtr->frameTables[idx].minEmpty); i++)
@@ -536,6 +549,7 @@ void pageReplacementRandom(masterFrameTable* framesPtr, int idx, int frameCount,
             }
         }
     }
+    /*Otherwise replace a random frame*/
     else
     {
         int random = rand() % (framesPtr->frameTables[idx].minEmpty);
@@ -547,7 +561,7 @@ void pageReplacementRandom(masterFrameTable* framesPtr, int idx, int frameCount,
 }
 void pageReplacementFIFO(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequested)
 {
-    
+    /*If there are still empty frames on table, put needed frame on one */
     if(framesPtr->frameTables[idx].emptyFrames > framesPtr->frameTables[idx].minEmpty)
     {
         for(int i =0; i < (framesPtr->frameTables[idx].maxEmpty - framesPtr->frameTables[idx].minEmpty); i++)
@@ -559,6 +573,8 @@ void pageReplacementFIFO(masterFrameTable* framesPtr, int idx, int frameCount, a
                 framesPtr->frameTables[idx].inQueue = false;
                 framesPtr->frameTables[idx].emptyFrames--;
                 framesPtr->frameTables[idx].PagesReferenced++;
+                /*First In array keeps track of when each page was referenced for the first time
+                We will use these values bellow to know which frame to replace*/
                 framesPtr->frameTables[idx].frames[i].FirstIn = framesPtr->frameTables[idx].PagesReferenced;
                 break;
             }
@@ -570,6 +586,7 @@ void pageReplacementFIFO(masterFrameTable* framesPtr, int idx, int frameCount, a
         int winnerIdx = 0;
         for(int i = 0; i <(framesPtr->frameTables[idx].maxEmpty - framesPtr->frameTables[idx].minEmpty); i++)
         {
+            /*We replace the frame whose First in value is smallest*/
             if(framesPtr->frameTables[idx].frames[i].FirstIn < FIFO)
             {
                 FIFO = framesPtr->frameTables[idx].frames[i].FirstIn;
@@ -588,6 +605,7 @@ void pageReplacementFIFO(masterFrameTable* framesPtr, int idx, int frameCount, a
 }
 void pageReplacementLDF(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequested)
 {
+    /*If there are still empty frames on table, put needed frame on one */
      if(framesPtr->frameTables[idx].emptyFrames > framesPtr->frameTables[idx].minEmpty)
     {
         for(int i =0; i < (framesPtr->frameTables[idx].maxEmpty - framesPtr->frameTables[idx].minEmpty); i++)
@@ -608,6 +626,7 @@ void pageReplacementLDF(masterFrameTable* framesPtr, int idx, int frameCount, ad
         int winnerIdx;
         for(int i =0; i < (framesPtr->frameTables[idx].maxEmpty - framesPtr->frameTables[idx].minEmpty); i++)
         {
+            /*We replace the frame whose page is at the largest distance from the page requested*/
             int distance = abs(framesPtr->frameTables[idx].frames[i].pageNumb - pageRequested.pageNumb);
             if(distance > maxDistance)
             {
@@ -623,6 +642,7 @@ void pageReplacementLDF(masterFrameTable* framesPtr, int idx, int frameCount, ad
 }
 void pageReplacementLFU(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequested)
 {
+    /*If there are still empty frames on table, put needed frame on one */
      if(framesPtr->frameTables[idx].emptyFrames > framesPtr->frameTables[idx].minEmpty)
     {
         for(int i =0; i <(framesPtr->frameTables[idx].maxEmpty - framesPtr->frameTables[idx].minEmpty); i++)
@@ -633,6 +653,7 @@ void pageReplacementLFU(masterFrameTable* framesPtr, int idx, int frameCount, ad
                 framesPtr->frameTables[idx].frames[i].pageNumb = pageRequested.pageNumb;
                 framesPtr->frameTables[idx].inQueue = false;
                 framesPtr->frameTables[idx].emptyFrames--;
+                /*Frame frequency array will be used to keep track of how many times a page has been referenced*/
                 framesPtr->frameTables[idx].frameFreq[pageRequested.pageNumb]++;
                 break;
             }
@@ -644,6 +665,7 @@ void pageReplacementLFU(masterFrameTable* framesPtr, int idx, int frameCount, ad
         int winnerIdx = 0;
         for(int i =0; i < (framesPtr->frameTables[idx].maxEmpty - framesPtr->frameTables[idx].minEmpty); i++)
         {
+            /*Select frame with smallest frequency*/
             int freq = framesPtr->frameTables[idx].frameFreq[framesPtr->frameTables[idx].frames[i].pageNumb];
             if(freq < minFreq)
             {
@@ -661,6 +683,7 @@ void pageReplacementLFU(masterFrameTable* framesPtr, int idx, int frameCount, ad
 }
 void pageReplacementOPT(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequested, int lookahead)
 {
+    /*If there are still empty frames on table, put needed frame on one */
     if(framesPtr->frameTables[idx].emptyFrames > framesPtr->frameTables[idx].minEmpty)
     {
         for(int i =0; i < (framesPtr->frameTables[idx].maxEmpty - framesPtr->frameTables[idx].minEmpty); i++)
@@ -682,6 +705,7 @@ void pageReplacementOPT(masterFrameTable* framesPtr, int idx, int frameCount, ad
         int winnerIdx =0;
         for(int i =0; i <(framesPtr->frameTables[idx].maxEmpty - framesPtr->frameTables[idx].minEmpty); i++)
         {
+            /*We iterate through the instruction sequence for the process to find the frame whose next reference is furthest away*/
             int refDis = 0;
             for(int j = framesPtr->frameTables[idx].refIdx; j <= (framesPtr->frameTables[idx].refIdx + lookahead); j++)
             {
@@ -710,6 +734,7 @@ void pageReplacementOPT(masterFrameTable* framesPtr, int idx, int frameCount, ad
 }
 void pageReplacementWS(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequested)
 {
+    /*This function will be used to add the needed page to the working set in case of a page fault*/
     for(int i =0; i < framesPtr->frameTables[idx].pagesOnDisk; i++)
         {
             if(framesPtr->frameTables[idx].frames[i].empty == true)
@@ -723,6 +748,7 @@ void pageReplacementWS(masterFrameTable* framesPtr, int idx, int frameCount, add
 }
 void frameUpdateWS(masterFrameTable* framesPtr, int idx, int delta)
 {
+    /*This function will be called within the paging function to make sure the working set stays current*/
     framesPtr->frameTables[idx].refIdx++; //move reference idx and put the frames of the last 4 references on frame table
     int j;
     if((framesPtr->frameTables[idx].refIdx - delta) <= 0)
@@ -746,6 +772,7 @@ void frameUpdateWS(masterFrameTable* framesPtr, int idx, int delta)
     }
     bool flag2 = true;
     int i = 0;
+    /*Add the pages that have been referenced on the last delta instructions*/
     while(flag2)
     {
         if(j < framesPtr->frameTables[idx].refIdx)
@@ -781,6 +808,7 @@ void frameUpdateWS(masterFrameTable* framesPtr, int idx, int delta)
     bool flag = true;
     int maxWS = 0;
     i = 0;
+    /*Check the current max working set size*/
     while(flag)
     {
         if(framesPtr->frameTables[idx].frames[i].empty == true)
@@ -801,6 +829,7 @@ void frameUpdateWS(masterFrameTable* framesPtr, int idx, int delta)
 }
 void pageReplacementLRU(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequested)
 {
+    /*If there are still empty frames on table, put needed frame on one */
     if(framesPtr->frameTables[idx].emptyFrames > framesPtr->frameTables[idx].minEmpty)
     {
         for(int i =0; i < (framesPtr->frameTables[idx].maxEmpty - framesPtr->frameTables[idx].minEmpty); i++)
@@ -820,6 +849,7 @@ void pageReplacementLRU(masterFrameTable* framesPtr, int idx, int frameCount, ad
     {
         int maxDistance = 0;
         int winnerIdx;
+        /*Replace the page whose last reference is furthest away*/
         for(int i = 0; i < (framesPtr->frameTables[idx].maxEmpty - framesPtr->frameTables[idx].minEmpty); i++)
         {
             int distanceToLastUse = 0;
@@ -849,6 +879,7 @@ void pageReplacementLRU(masterFrameTable* framesPtr, int idx, int frameCount, ad
 }
 void pageReplacementLRUX(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequested, int lookahead)
 {
+    /*If there are still empty frames on table, put needed frame on one */
     if(framesPtr->frameTables[idx].emptyFrames > framesPtr->frameTables[idx].minEmpty)
     {
         for(int i =0; i < (framesPtr->frameTables[idx].maxEmpty - framesPtr->frameTables[idx].minEmpty); i++)
@@ -885,6 +916,7 @@ void pageReplacementLRUX(masterFrameTable* framesPtr, int idx, int frameCount, a
         }
         else 
         {
+            /*Else find the page whose Xth reference is furthest away*/
             int maxDistanceToXRef = 0;
             int winnerIdx;
             for(int i = 0; i < haveBeenReferencedXtimes.size(); i++)
@@ -927,7 +959,7 @@ void pageReplacementLRUX(masterFrameTable* framesPtr, int idx, int frameCount, a
 }
 bool frameSearch(frameTable* ft, int pageNumb, int frameCount)
 {
-    
+    /*Function to search for a frame in frame table*/    
     int flag = 0;
     for(int i = 0; i < frameCount; i++)
     {
@@ -954,9 +986,9 @@ void paging(process* processPtr, masterFrameTable* framesPtr, sem_t* dSem, sem_t
     
     while(i < processPtr->inst.size())
     {
-        sem_wait(mySem);
+        sem_wait(mySem); //wait for Page Fault handler to signal
         instruction currentInstr = processPtr->inst[i];
-        if(currentInstr.ad.pageEntry == -1)
+        if(currentInstr.ad.pageEntry == -1) //if page number is -1 then process has terminated
         {
             sem_wait(mutex);
             framesPtr->frameTables[idx].terminated = true;
@@ -965,23 +997,26 @@ void paging(process* processPtr, masterFrameTable* framesPtr, sem_t* dSem, sem_t
         }
         else
         {
-            /*IF USING WORKIGN SET REPLACE frameCount WITH framesPtr->frameTables[idx].pagesOnDisk*/
+            /*IF USING WORKIGNG SET :
+                REPLACE frameCount WITH framesPtr->frameTables[idx].pagesOnDisk as the last parameter on frameSearch*/
             /*FOR ALL OTHER REPLACEMENT ALGORITHMS USE frameCount */
             bool inFrames = frameSearch(&framesPtr->frameTables[idx], currentInstr.ad.pageNumb, frameCount);
             if(inFrames == true)
             {
                 sem_wait(mutex);
                 framesPtr->instructionsSoFar++;
-                //frameUpdateWS(framesPtr, idx, frameCount); //EXCLUSIVE TO WORKING SET: Instead of page replacement we will "update" the working set
+                /*EXCLUSIVE TO WORKING SET: Uncomment function call bellow. Instead of page replacement we will "update" the working set*/
+                //frameUpdateWS(framesPtr, idx, frameCount); 
                 sem_post(mutex);
                 i++;
             }
             else
             {
+                /*If page is not in frames, there is a page fault*/
                 sem_wait(mutex);
-                framesPtr->frameTables[idx].pageRequest = currentInstr.ad;
-                framesPtr->frameTables[idx].inQueue = true;
-                sem_post(dSem);
+                framesPtr->frameTables[idx].pageRequest = currentInstr.ad; //put page request on shared memory
+                framesPtr->frameTables[idx].inQueue = true; //set inQueue to true so the page fault handler doesn't signal
+                sem_post(dSem); //signal the disk driver process to add or replace the requested page
                 sem_post(mutex);
             }
         
