@@ -41,34 +41,26 @@ struct frameTable
     int pid; //one frames table for each process to save context
     bool inQueue = false; //to signal that the process is on the disk queue to resolve a page fault
     bool terminated = true; //to signal the process is done executing
-    int frameFreq[20]; //for LFU scheduling
-    /*REMEMBER TO CHANGE THIS TO 1000 BEFORE SUBMITTING
-    20 IS JUST FOR TESTING*/
-    address refList[50]; //for OPT, LRU-X and LRU
-    /*REMEMBER TO CHANGE THIS TO 1000 BEFORE SUBMITTING
-    50 IS JUST FOR TESTING*/
-    int refIdx;
-    int pagesOnDisk; 
-    int maxWorkingSet = 0;
-    address pageRequest;
+    int frameFreq[1000]; //for LFU  and LRU-X scheduling
+    address refList[1000]; //for OPT, LRU-X and LRU
+    int refIdx; //to keep trach of which instruction on the sequence we are on
+    int pagesOnDisk; //pages on disk for this process
+    int maxWorkingSet = 0; //for Working Set
+    address pageRequest; //page being requested from disk
     int PagesReferenced = 0; //for FIFO scheduling
-    int pageFaults = 0;
+    int pageFaults = 0; //page faults
     int emptyFrames;
     int maxEmpty;
     int minEmpty;
-    frame frames[20]; //list of frames on Main Memory
-    /*REMEMBER TO CHANGE THIS TO 1000 BEFORE SUBMITTING
-    10 IS JUST FOR TESTING*/
+    frame frames[1000]; //list of frames on Main Memory
     
 };
 struct masterFrameTable //struct to be placed on shared memory to give access to running processes
 {
-    frameTable frameTables[10];
-    int totalPagefaults = 0; 
-    int totalInstructions;
+    frameTable frameTables[100];
+    int totalPagefaults = 0;  //total page faults for all processes
+    int totalInstructions; //to keep track of how far we are on the instruction sequence for all processes combined
     int instructionsSoFar;
-    /*REMEMBER TO CHANGE THIS TO 100 BEFORE SUBMITTING
-    10 IS JUST FOR TESTING*/
 };
 
 struct diskProcess
@@ -99,29 +91,36 @@ struct pageTable
     std::vector<pageList> pageLists; //one pageList for each process
 };
 
-process processCreator(int id, int pages);
-instruction instrCreator(int id, std::string addr);
+process processCreator(int id, int pages); /*Initializes process structs*/
+instruction instrCreator(int id, std::string addr); /*For extracting instructions from input file*/
+
+/*Function called by each process to start the paging process*/
 void paging(process* processPtr, masterFrameTable* framesPtr, sem_t* dSem, sem_t* mutex, sem_t* mySem, int idx, int frameCount);
+
+/*Page Replacement Functions for each algorithm. They can all be tested within a single file by modifying the function call within Disk driver process*/
 void pageReplacementRandom(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequested);
 void pageReplacementFIFO(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequested);
 void pageReplacementLDF(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequested);
 void pageReplacementLFU(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequested);
 void pageReplacementOPT(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequested, int lookahead);
-void pageReplacementWS(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequested, int delta);
-void frameUpdateWS(masterFrameTable* framesPtr, int idx, int delta);
 void pageReplacementLRU(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequested);
+void pageReplacementLRUX(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequested, int lookahead);
+
+/*The Working Set replacement algorithm requires 2 functions instead of one. FrameUpdate must be uncommented within the paging function
+and frameSearch needs a different last paramenter value for this replacement. Further instructions within paging function code*/
+void frameUpdateWS(masterFrameTable* framesPtr, int idx, int delta);
 void pageReplacementWS(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequested);
+
+/*Function to check if the page being requested is already in the frames*/
 bool frameSearch(frameTable ft, int pageNumb, int frameCount);
 int main()
 {
     std::vector<std::string> fileCont; //string vector to store each line on the text file
     
-   /*for (std::string line; std::getline(std::cin, line); )
-    {
-       fileCont.push_back(line); //each line is an element in this vector
-    }*/
     std::ifstream inFile;
 
+    /*Input file must be on the same file as .cpp file
+    Compiled with g++ Elena_Torre3.cpp -pthread*/
     inFile.open("inp.txt");
     if (!inFile) {
         std::cout << "Unable to open file";
@@ -147,6 +146,7 @@ int main()
 
     fileCont.erase(fileCont.begin(), (fileCont.begin()+7));
 
+    /*Initialze process structs*/
     for(int i =0; i < numb_process; i++)
     {
         std::istringstream buff(fileCont[2*i]);
@@ -219,10 +219,9 @@ int main()
         perror("error attatching shared memory.");
     }
 
+
     /*Create frame Tables for every process*/
     /*This will help me save the frames allocated to every process for context switching on a page fault*/
-
-    
     frameTable fTable;
     fTable.maxEmpty = poolMax;
     fTable.minEmpty = poolMin;
@@ -251,7 +250,7 @@ int main()
         fTable.PagesReferenced = 0;
         fTable.refIdx = 0;
         int size = processList[i].pagesOnDisk;
-        std::fill(fTable.frameFreq, fTable.frameFreq + (size + 1), 0);
+        std::fill(fTable.frameFreq, fTable.frameFreq + (size + 1), 0); //making sure frameFreq table is set to all 0 for LFU and LRU-X
         fTable.pagesOnDisk = size;
         masterFrame->frameTables[i] = fTable;
     }
@@ -348,12 +347,14 @@ int main()
     }
     sem_unlink("/drive");
 
-    sem_t *driver_deact = sem_open("/drive_end", O_CREAT, S_IRUSR | S_IWUSR, 0); //semaphore to signal to the disk driver that the processes have terminated
+    /*semaphore to signal to the disk driver that the processes have terminated*/
+    sem_t *driver_deact = sem_open("/drive_end", O_CREAT, S_IRUSR | S_IWUSR, 0); 
     if (driver_deact == SEM_FAILED) {
       perror("sem_open() failed ");
     }
     sem_unlink("/drive_end");
 
+    /*One named semaphore per process. Each process will wait for a signal before continuing with the next instruction*/
     sem_t *procSems[numb_process];
     for(int i = 0; i <numb_process; i++)
     {
@@ -368,6 +369,7 @@ int main()
         }
         sem_unlink(name);
     }
+
     /*Start paging*/
 
     pid_t pid;
@@ -385,8 +387,9 @@ int main()
             process* myPtr = &processList[i];
             paging(myPtr, masterFrame, driver_sem, mutex, procSems[i], i, framesPerProcess);
             std::cout<<"Process "<<std::to_string(i+1)<<" page faults: "<<std::to_string(masterFrame->frameTables[i].pageFaults)<<std::endl;
-            /*FOR WORKING SET ONLY*/
-            std::cout<<"Process "<<std::to_string(i+1)<<" max working set: "<<std::to_string(masterFrame->frameTables[i].maxWorkingSet)<<std::endl;
+
+            /*FOR WORKING SET: uncomment line bellow to add max working set size to output*/
+            //std::cout<<"Process "<<std::to_string(i+1)<<" max working set: "<<std::to_string(masterFrame->frameTables[i].maxWorkingSet)<<std::endl;
             
             break;
         }
@@ -401,11 +404,11 @@ int main()
         }
         if (pid == 0)
         {
-            /*Disk driver*/
+            /*Disk driver process: it will handle page replacement*/
             bool x = true;
             while(x)
             {
-                int flag = sem_trywait(driver_deact);
+                int flag = sem_trywait(driver_deact); //Check if PageFault Handler process has signaled that all processes are over
                 if((flag == -1)&&(errno = EAGAIN))
                 {
                     int flag2 = sem_trywait(driver_sem);
@@ -430,9 +433,10 @@ int main()
                                     //pageReplacementRandom(masterFrame, i, framesPerProcess, masterFrame->frameTables[i].pageRequest);
                                     //pageReplacementLDF(masterFrame, i, framesPerProcess, masterFrame->frameTables[i].pageRequest);
                                     //pageReplacementLFU(masterFrame, i, framesPerProcess, masterFrame->frameTables[i].pageRequest);
-                                    //pageReplacementOPT(masterFrame, i, framesPerProcess, masterFrame->frameTables[i].pageRequest, lookahead);
-                                    pageReplacementWS(masterFrame, i, masterFrame->frameTables[i].pagesOnDisk, masterFrame->frameTables[i].pageRequest);
                                     //pageReplacementLRU(masterFrame, i, framesPerProcess, masterFrame->frameTables[i].pageRequest);
+                                    //pageReplacementOPT(masterFrame, i, framesPerProcess, masterFrame->frameTables[i].pageRequest, lookahead);
+                                    //pageReplacementWS(masterFrame, i, masterFrame->frameTables[i].pagesOnDisk, masterFrame->frameTables[i].pageRequest);
+                                    pageReplacementLRUX(masterFrame, i, framesPerProcess, masterFrame->frameTables[i].pageRequest, lookahead);
                                     masterFrame->frameTables[i].pageFaults++;
                                     masterFrame->totalPagefaults++;
                                 }
@@ -520,7 +524,7 @@ void pageReplacementRandom(masterFrameTable* framesPtr, int idx, int frameCount,
 {
     if(framesPtr->frameTables[idx].emptyFrames > framesPtr->frameTables[idx].minEmpty)
     {
-        for(int i =0; i < framesPtr->frameTables[idx].minEmpty; i++)
+        for(int i =0; i < (framesPtr->frameTables[idx].maxEmpty - framesPtr->frameTables[idx].minEmpty); i++)
         {
             if(framesPtr->frameTables[idx].frames[i].empty == true)
             {
@@ -546,7 +550,7 @@ void pageReplacementFIFO(masterFrameTable* framesPtr, int idx, int frameCount, a
     
     if(framesPtr->frameTables[idx].emptyFrames > framesPtr->frameTables[idx].minEmpty)
     {
-        for(int i =0; i < framesPtr->frameTables[idx].minEmpty; i++)
+        for(int i =0; i < (framesPtr->frameTables[idx].maxEmpty - framesPtr->frameTables[idx].minEmpty); i++)
         {
             if(framesPtr->frameTables[idx].frames[i].empty == true)
             {
@@ -564,7 +568,7 @@ void pageReplacementFIFO(masterFrameTable* framesPtr, int idx, int frameCount, a
     {
         int FIFO = INT16_MAX;
         int winnerIdx = 0;
-        for(int i = 0; i <framesPtr->frameTables[idx].minEmpty; i++)
+        for(int i = 0; i <(framesPtr->frameTables[idx].maxEmpty - framesPtr->frameTables[idx].minEmpty); i++)
         {
             if(framesPtr->frameTables[idx].frames[i].FirstIn < FIFO)
             {
@@ -586,7 +590,7 @@ void pageReplacementLDF(masterFrameTable* framesPtr, int idx, int frameCount, ad
 {
      if(framesPtr->frameTables[idx].emptyFrames > framesPtr->frameTables[idx].minEmpty)
     {
-        for(int i =0; i < framesPtr->frameTables[idx].minEmpty; i++)
+        for(int i =0; i < (framesPtr->frameTables[idx].maxEmpty - framesPtr->frameTables[idx].minEmpty); i++)
         {
             if(framesPtr->frameTables[idx].frames[i].empty == true)
             {
@@ -602,7 +606,7 @@ void pageReplacementLDF(masterFrameTable* framesPtr, int idx, int frameCount, ad
     {
         int maxDistance = 0;
         int winnerIdx;
-        for(int i =0; i < framesPtr->frameTables[idx].minEmpty; i++)
+        for(int i =0; i < (framesPtr->frameTables[idx].maxEmpty - framesPtr->frameTables[idx].minEmpty); i++)
         {
             int distance = abs(framesPtr->frameTables[idx].frames[i].pageNumb - pageRequested.pageNumb);
             if(distance > maxDistance)
@@ -621,7 +625,7 @@ void pageReplacementLFU(masterFrameTable* framesPtr, int idx, int frameCount, ad
 {
      if(framesPtr->frameTables[idx].emptyFrames > framesPtr->frameTables[idx].minEmpty)
     {
-        for(int i =0; i < framesPtr->frameTables[idx].minEmpty; i++)
+        for(int i =0; i <(framesPtr->frameTables[idx].maxEmpty - framesPtr->frameTables[idx].minEmpty); i++)
         {
             if(framesPtr->frameTables[idx].frames[i].empty == true)
             {
@@ -638,7 +642,7 @@ void pageReplacementLFU(masterFrameTable* framesPtr, int idx, int frameCount, ad
     {
         int minFreq = INT16_MAX;
         int winnerIdx = 0;
-        for(int i =0; i < framesPtr->frameTables[idx].minEmpty; i++)
+        for(int i =0; i < (framesPtr->frameTables[idx].maxEmpty - framesPtr->frameTables[idx].minEmpty); i++)
         {
             int freq = framesPtr->frameTables[idx].frameFreq[framesPtr->frameTables[idx].frames[i].pageNumb];
             if(freq < minFreq)
@@ -659,7 +663,7 @@ void pageReplacementOPT(masterFrameTable* framesPtr, int idx, int frameCount, ad
 {
     if(framesPtr->frameTables[idx].emptyFrames > framesPtr->frameTables[idx].minEmpty)
     {
-        for(int i =0; i < framesPtr->frameTables[idx].minEmpty; i++)
+        for(int i =0; i < (framesPtr->frameTables[idx].maxEmpty - framesPtr->frameTables[idx].minEmpty); i++)
         {
             if(framesPtr->frameTables[idx].frames[i].empty == true)
             {
@@ -676,7 +680,7 @@ void pageReplacementOPT(masterFrameTable* framesPtr, int idx, int frameCount, ad
     {
         int maxRefDistance = -1;
         int winnerIdx =0;
-        for(int i =0; i <framesPtr->frameTables[idx].minEmpty; i++)
+        for(int i =0; i <(framesPtr->frameTables[idx].maxEmpty - framesPtr->frameTables[idx].minEmpty); i++)
         {
             int refDis = 0;
             for(int j = framesPtr->frameTables[idx].refIdx; j <= (framesPtr->frameTables[idx].refIdx + lookahead); j++)
@@ -706,15 +710,13 @@ void pageReplacementOPT(masterFrameTable* framesPtr, int idx, int frameCount, ad
 }
 void pageReplacementWS(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequested)
 {
-    std::cout<<"bruh"<<std::endl;
     for(int i =0; i < framesPtr->frameTables[idx].pagesOnDisk; i++)
         {
             if(framesPtr->frameTables[idx].frames[i].empty == true)
             {
-                framesPtr->frameTables[idx].frames[i].empty = false;
-                framesPtr->frameTables[idx].frames[i].pageNumb = pageRequested.pageNumb;
+                framesPtr->frameTables[idx].frames[(i)].empty = false;
+                framesPtr->frameTables[idx].frames[(i)].pageNumb = pageRequested.pageNumb;
                 framesPtr->frameTables[idx].inQueue = false;
-                framesPtr->frameTables[idx].refIdx++;
                 break;
             }
         }
@@ -730,7 +732,7 @@ void frameUpdateWS(masterFrameTable* framesPtr, int idx, int delta)
     else
     {
         j = framesPtr->frameTables[idx].refIdx - delta;
-        std::cout<<"j = "<<j<<std::endl;
+        
     }
     
     /*Delete preexisting frames so we can fill frame table with only the last delta references*/
@@ -801,7 +803,7 @@ void pageReplacementLRU(masterFrameTable* framesPtr, int idx, int frameCount, ad
 {
     if(framesPtr->frameTables[idx].emptyFrames > framesPtr->frameTables[idx].minEmpty)
     {
-        for(int i =0; i < framesPtr->frameTables[idx].minEmpty; i++)
+        for(int i =0; i < (framesPtr->frameTables[idx].maxEmpty - framesPtr->frameTables[idx].minEmpty); i++)
         {
             if(framesPtr->frameTables[idx].frames[i].empty == true)
             {
@@ -818,7 +820,7 @@ void pageReplacementLRU(masterFrameTable* framesPtr, int idx, int frameCount, ad
     {
         int maxDistance = 0;
         int winnerIdx;
-        for(int i = 0; i < framesPtr->frameTables[idx].minEmpty; i++)
+        for(int i = 0; i < (framesPtr->frameTables[idx].maxEmpty - framesPtr->frameTables[idx].minEmpty); i++)
         {
             int distanceToLastUse = 0;
             for(int j = framesPtr->frameTables[idx].refIdx; j >= 0; j--)
@@ -844,6 +846,84 @@ void pageReplacementLRU(masterFrameTable* framesPtr, int idx, int frameCount, ad
         framesPtr->frameTables[idx].inQueue = false;
         framesPtr->frameTables[idx].refIdx++;
     }
+}
+void pageReplacementLRUX(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequested, int lookahead)
+{
+    if(framesPtr->frameTables[idx].emptyFrames > framesPtr->frameTables[idx].minEmpty)
+    {
+        for(int i =0; i < (framesPtr->frameTables[idx].maxEmpty - framesPtr->frameTables[idx].minEmpty); i++)
+        {
+            if(framesPtr->frameTables[idx].frames[i].empty == true)
+            {
+                framesPtr->frameTables[idx].frames[i].empty = false;
+                framesPtr->frameTables[idx].frames[i].pageNumb = pageRequested.pageNumb;
+                framesPtr->frameTables[idx].inQueue = false;
+                framesPtr->frameTables[idx].emptyFrames--;
+                framesPtr->frameTables[idx].frameFreq[pageRequested.pageNumb]++;
+                framesPtr->frameTables[idx].refIdx++;
+                break;
+            }
+        }
+    }
+    else
+    {
+        std::vector<int> haveBeenReferencedXtimes; //to save the indexes of the frames that have been referenced more than x times
+        int counter = 0;
+        for(int i = 0; i < (framesPtr->frameTables[idx].maxEmpty - framesPtr->frameTables[idx].minEmpty); i++)
+        {
+            int ref = framesPtr->frameTables[idx].frameFreq[framesPtr->frameTables[idx].frames[i].pageNumb];
+            if(ref >= lookahead)
+            {
+                haveBeenReferencedXtimes.push_back(i);
+                counter++;
+            }
+        }
+        if(counter == 0)
+        {
+            /*If no page in frames has been referenced X times or more just use normal LRU*/
+            pageReplacementLRU(framesPtr, idx, frameCount, pageRequested);
+        }
+        else 
+        {
+            int maxDistanceToXRef = 0;
+            int winnerIdx;
+            for(int i = 0; i < haveBeenReferencedXtimes.size(); i++)
+            {
+                int distanceToXRef = 0;
+                int refCount = 0;
+                int j = framesPtr->frameTables[idx].refIdx;
+                while(refCount < lookahead || j >= 0)
+                {
+                        if(framesPtr->frameTables[idx].frames[haveBeenReferencedXtimes[i]].pageNumb != framesPtr->frameTables[idx].refList[j].pageNumb)
+                        {
+                            distanceToXRef++;
+                            j--;
+
+                        }
+                        else
+                        {
+                            distanceToXRef++;
+                            refCount++;
+                            j--;
+                        }
+
+                }
+                if(distanceToXRef > maxDistanceToXRef)
+                {
+                    winnerIdx = haveBeenReferencedXtimes[i];
+                    maxDistanceToXRef = distanceToXRef;
+                }
+
+            }
+            framesPtr->frameTables[idx].frames[winnerIdx].empty = false;
+            framesPtr->frameTables[idx].frames[winnerIdx].pageNumb = pageRequested.pageNumb;
+            framesPtr->frameTables[idx].inQueue = false;
+            framesPtr->frameTables[idx].refIdx++;
+
+        }
+        
+    }
+    
 }
 bool frameSearch(frameTable* ft, int pageNumb, int frameCount)
 {
@@ -887,12 +967,12 @@ void paging(process* processPtr, masterFrameTable* framesPtr, sem_t* dSem, sem_t
         {
             /*IF USING WORKIGN SET REPLACE frameCount WITH framesPtr->frameTables[idx].pagesOnDisk*/
             /*FOR ALL OTHER REPLACEMENT ALGORITHMS USE frameCount */
-            bool inFrames = frameSearch(&framesPtr->frameTables[idx], currentInstr.ad.pageNumb, framesPtr->frameTables[idx].pagesOnDisk);
+            bool inFrames = frameSearch(&framesPtr->frameTables[idx], currentInstr.ad.pageNumb, frameCount);
             if(inFrames == true)
             {
                 sem_wait(mutex);
                 framesPtr->instructionsSoFar++;
-                frameUpdateWS(framesPtr, idx, frameCount); //EXCLUSIVE TO WORKING SET: Instead of page replacement we will "update" the working set
+                //frameUpdateWS(framesPtr, idx, frameCount); //EXCLUSIVE TO WORKING SET: Instead of page replacement we will "update" the working set
                 sem_post(mutex);
                 i++;
             }
