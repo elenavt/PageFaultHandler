@@ -110,6 +110,7 @@ void pageReplacementOPT(masterFrameTable* framesPtr, int idx, int frameCount, ad
 void pageReplacementWS(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequested, int delta);
 void frameUpdateWS(masterFrameTable* framesPtr, int idx, int delta);
 void pageReplacementLRU(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequested);
+void pageReplacementWS(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequested);
 bool frameSearch(frameTable ft, int pageNumb, int frameCount);
 int main()
 {
@@ -230,7 +231,7 @@ int main()
     {
         frame tempFrame;
 
-        tempFrame.pageNumb = 999;
+        tempFrame.pageNumb = 9999;
         tempFrame.empty = true; //initialize empty frames
         fTable.frames[i] = tempFrame;
 
@@ -239,8 +240,8 @@ int main()
         fTable.inQueue;
 
         address tempadr;
-        tempadr.pageEntry = 999;
-        tempadr.pageNumb = 999;
+        tempadr.pageEntry = 9999;
+        tempadr.pageNumb = 9999;
         fTable.pageRequest = tempadr;
     }
     for(int i = 0; i <numb_process; i++)
@@ -430,7 +431,7 @@ int main()
                                     //pageReplacementLDF(masterFrame, i, framesPerProcess, masterFrame->frameTables[i].pageRequest);
                                     //pageReplacementLFU(masterFrame, i, framesPerProcess, masterFrame->frameTables[i].pageRequest);
                                     //pageReplacementOPT(masterFrame, i, framesPerProcess, masterFrame->frameTables[i].pageRequest, lookahead);
-                                    //frameUpdateWS(masterFrame, i, framesPerProcess);
+                                    pageReplacementWS(masterFrame, i, masterFrame->frameTables[i].pagesOnDisk, masterFrame->frameTables[i].pageRequest);
                                     //pageReplacementLRU(masterFrame, i, framesPerProcess, masterFrame->frameTables[i].pageRequest);
                                     masterFrame->frameTables[i].pageFaults++;
                                     masterFrame->totalPagefaults++;
@@ -703,9 +704,24 @@ void pageReplacementOPT(masterFrameTable* framesPtr, int idx, int frameCount, ad
 
     }
 }
-
+void pageReplacementWS(masterFrameTable* framesPtr, int idx, int frameCount, address pageRequested)
+{
+    std::cout<<"bruh"<<std::endl;
+    for(int i =0; i < framesPtr->frameTables[idx].pagesOnDisk; i++)
+        {
+            if(framesPtr->frameTables[idx].frames[i].empty == true)
+            {
+                framesPtr->frameTables[idx].frames[i].empty = false;
+                framesPtr->frameTables[idx].frames[i].pageNumb = pageRequested.pageNumb;
+                framesPtr->frameTables[idx].inQueue = false;
+                framesPtr->frameTables[idx].refIdx++;
+                break;
+            }
+        }
+}
 void frameUpdateWS(masterFrameTable* framesPtr, int idx, int delta)
 {
+    framesPtr->frameTables[idx].refIdx++; //move reference idx and put the frames of the last 4 references on frame table
     int j;
     if((framesPtr->frameTables[idx].refIdx - delta) <= 0)
     {
@@ -714,6 +730,7 @@ void frameUpdateWS(masterFrameTable* framesPtr, int idx, int delta)
     else
     {
         j = framesPtr->frameTables[idx].refIdx - delta;
+        std::cout<<"j = "<<j<<std::endl;
     }
     
     /*Delete preexisting frames so we can fill frame table with only the last delta references*/
@@ -721,21 +738,35 @@ void frameUpdateWS(masterFrameTable* framesPtr, int idx, int delta)
     {
         if(framesPtr->frameTables[idx].frames[i].empty == false)
         {
-            framesPtr->frameTables[idx].frames[i].pageNumb = 999;
+            framesPtr->frameTables[idx].frames[i].pageNumb = 99999;
             framesPtr->frameTables[idx].frames[i].empty = true;
         }
     }
     bool flag2 = true;
+    int i = 0;
     while(flag2)
     {
-        if(j <= framesPtr->frameTables[idx].refIdx)
+        if(j < framesPtr->frameTables[idx].refIdx)
         {
-            for(int i = 0; i < framesPtr->frameTables[idx].pagesOnDisk; i++)
+            int counter = 0;
+            for(int h = 0; h < framesPtr->frameTables[idx].pagesOnDisk; h++)
             {
+                if(framesPtr->frameTables[idx].frames[h].pageNumb == framesPtr->frameTables[idx].refList[j].pageNumb)
+                {
+                    break;
+                }
+                else
+                {
+                    counter++;
+                }
                 
             }
-            framesPtr->frameTables[idx].frames[i].pageNumb = framesPtr->frameTables[idx].refList[j].pageNumb;
-            framesPtr->frameTables[idx].frames[i].empty = false;
+            if(counter >= framesPtr->frameTables[idx].pagesOnDisk)
+            {
+                framesPtr->frameTables[idx].frames[i].empty = false;
+                framesPtr->frameTables[idx].frames[i].pageNumb = framesPtr->frameTables[idx].refList[j].pageNumb;
+            }
+            i++;
             j++;
 
         }
@@ -745,8 +776,6 @@ void frameUpdateWS(masterFrameTable* framesPtr, int idx, int delta)
         }
         
     }
-    framesPtr->frameTables[idx].inQueue = false;
-    framesPtr->frameTables[idx].refIdx++;
     bool flag = true;
     int maxWS = 0;
     i = 0;
